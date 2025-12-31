@@ -123,7 +123,10 @@ void WaterRenderer::render(GLuint shaderProgram,
 	const float* light_dir_ws,
 	const float* camera_pos_ws,
 	float water_size,
-	float sim_dx)
+	float sim_dx,
+	bool showNodes,
+	float nodeEps,
+	float nodeStrength)
 {
 	// Bind shader and update uniforms.
 	glUseProgram(shaderProgram);
@@ -142,6 +145,11 @@ void WaterRenderer::render(GLuint shaderProgram,
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, m_heightTex);
 	glUniform1i(glGetUniformLocation(shaderProgram, "heightTex"), 0);
+
+	glUniform1i(glGetUniformLocation(shaderProgram, "u_showNodes"), showNodes ? 1 : 0);
+	glUniform1f(glGetUniformLocation(shaderProgram, "u_nodeEps"), nodeEps);
+	glUniform1f(glGetUniformLocation(shaderProgram, "u_nodeStrength"), nodeStrength);
+
 
 	// Draw static grid (WaterMesh). Vertex shader displaces it into water surface.
 	glBindVertexArray(m_vao);

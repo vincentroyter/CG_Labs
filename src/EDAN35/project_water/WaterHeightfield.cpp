@@ -12,6 +12,12 @@ float WaterHeightfield::laplacianU(int x, int y) const
 		4.0f * uC);
 }
 
+void WaterHeightfield::reset()
+{
+	std::fill(m_u.begin(), m_u.end(), 0.0f);
+	std::fill(m_v.begin(), m_v.end(), 0.0f);
+}
+
 WaterHeightfield::WaterHeightfield(int n, float size)
 	: m_n(n)                                   // grid resolution (Nsim)
 	, m_size(size)                              // physical width/depth
@@ -20,6 +26,7 @@ WaterHeightfield::WaterHeightfield(int n, float size)
 	, m_v(std::size_t(n)* std::size_t(n), 0.0f) // v[i,j] in the PDF (velocity)
 {
 }
+
 
 void WaterHeightfield::update(float dt)
 {
@@ -72,8 +79,9 @@ void WaterHeightfield::step(float dt)
 			// v = v + f * dt
 			m_v[i] += f * dt;
 
-			// damping: v *= m_velDamp
-			m_v[i] *= m_velDamp;
+			// dt-correct damping: v *= exp(-gamma * dt)
+			m_v[i] *= std::exp(-m_velDampPerSec * dt);
+
 
 			// u_new = u + v * dt
 			u_new[i] = m_u[i] + m_v[i] * dt;
@@ -182,6 +190,99 @@ void WaterHeightfield::removeMeanHeight()
 		}
 	}
 }
+
+static constexpr float PI = 3.14159265359f;
+
+void WaterHeightfield::pullPointTargetHeight(
+	int x, int y, float dt, float targetU, float widthCells, float k, float d)
+{
+	if (x < 1 || x >= m_n - 1 || y < 1 || y >= m_n - 1) return;
+
+	float sigma = std::max(0.5f, widthCells * 0.6f);
+	float inv2Sigma2 = 1.0f / (2.0f * sigma * sigma);
+
+	int r = int(std::ceil(3.0f * widthCells + 2.0f));
+	int xmin = std::clamp(x - r, 1, m_n - 2);
+	int xmax = std::clamp(x + r, 1, m_n - 2);
+	int ymin = std::clamp(y - r, 1, m_n - 2);
+	int ymax = std::clamp(y + r, 1, m_n - 2);
+
+	for (int yy = ymin; yy <= ymax; ++yy) {
+		for (int xx = xmin; xx <= xmax; ++xx) {
+			float dx = float(xx - x);
+			float dy = float(yy - y);
+			float w = std::exp(-(dx * dx + dy * dy) * inv2Sigma2);
+
+			std::size_t i = idx(xx, yy);
+
+			float du = (targetU - m_u[i]);
+			float a = (k * du) - (d * m_v[i]);   // spring + damping
+			m_v[i] += a * dt * w;
+		}
+	}
+}
+
+void WaterHeightfield::pullSegmentTargetHeight(
+	float cx, float cy,
+	float dirx, float diry,
+	float lengthCells,
+	float dt,
+	float targetU,
+	float widthCells,
+	float k, float d)
+{
+	float L = std::sqrt(dirx * dirx + diry * diry);
+	if (L < 1e-6f) { dirx = 1.0f; diry = 0.0f; L = 1.0f; }
+	dirx /= L; diry /= L;
+
+	float halfLen = 0.5f * std::max(0.0f, lengthCells);
+
+	float sigma = std::max(0.5f, widthCells * 0.6f);
+	float inv2Sigma2 = 1.0f / (2.0f * sigma * sigma);
+
+	float reach = halfLen + 3.0f * widthCells + 2.0f;
+	int r = int(std::ceil(reach));
+
+	int xmin = std::clamp(int(std::floor(cx)) - r, 1, m_n - 2);
+	int xmax = std::clamp(int(std::floor(cx)) + r, 1, m_n - 2);
+	int ymin = std::clamp(int(std::floor(cy)) - r, 1, m_n - 2);
+	int ymax = std::clamp(int(std::floor(cy)) + r, 1, m_n - 2);
+
+	for (int y = ymin; y <= ymax; ++y) {
+		for (int x = xmin; x <= xmax; ++x) {
+
+			float px = float(x) - cx;
+			float py = float(y) - cy;
+
+			float along = px * dirx + py * diry;
+			float alongClamped = std::clamp(along, -halfLen, halfLen);
+
+			float qx = alongClamped * dirx;
+			float qy = alongClamped * diry;
+
+			float dx = px - qx;
+			float dy = py - qy;
+			float dist2 = dx * dx + dy * dy;
+
+			float w = std::exp(-dist2 * inv2Sigma2);
+
+			std::size_t i = idx(x, y);
+			float du = (targetU - m_u[i]);
+			float a = (k * du) - (d * m_v[i]);
+			m_v[i] += a * dt * w;
+		}
+	}
+}
+
+
+
+
+
+
+
+
+
+
 
 
 

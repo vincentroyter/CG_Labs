@@ -21,7 +21,10 @@ public:
 		const float* light_dir_ws,
 		const float* camera_pos_ws,
 		float water_size,
-		float sim_dx);
+		float sim_dx,
+		bool showNodes,
+		float nodeEps,
+		float nodeStrength);
 
 	void setHeightFiltering(bool nearest);
 

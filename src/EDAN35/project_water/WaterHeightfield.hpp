@@ -23,12 +23,30 @@ public:
 	// --- UI parameter accessors ---
 	float waveSpeed() const { return m_c; }
 	void  setWaveSpeed(float c) { m_c = c; }
+	void setLockWaterLevel(bool on) { m_lockWaterLevel = on; }
 
-	float velDamp() const { return m_velDamp; }
-	void  setVelDamp(float d) { m_velDamp = d; }
+
+	float velDamp() const { return m_velDampPerSec; }
+	void  setVelDamp(float g) { m_velDampPerSec = g; }
+
 
 	float maxSlope() const { return m_maxSlope; }
 	void  setMaxSlope(float s) { m_maxSlope = s; }
+
+void pullPointTargetHeight(int x, int y, float dt, float targetU, float widthCells, float k, float d);
+void pullSegmentTargetHeight(
+    float cx, float cy,
+    float dirx, float diry,
+    float lengthCells,
+    float dt,
+    float targetU,
+    float widthCells,
+    float k, float d);
+
+void reset();
+
+
+
 
 
 
@@ -39,7 +57,7 @@ private:
 
 	// Wave params
 	float m_c = 1.2f;     // wave speed in world units / s
-	float m_velDamp = 0.995f;   // per-substep velocity damping
+	float m_velDampPerSec = 1.0f; // damping rate gamma [1/s]  (tune 0..10)
 	float m_maxSlope = 0.6f;     // clamp strength (height per meter-ish)
 
 	// State

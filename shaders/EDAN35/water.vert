@@ -19,6 +19,8 @@ uniform float sim_dx;
 
 out vec3 vPosWS;
 out vec3 vNrmWS;
+out vec2 vUV;
+
 
 float sampleHeight(vec2 uv)
 {
@@ -30,6 +32,8 @@ void main()
     // Map model-space xz in [-size/2, +size/2] to texture uv in [0,1].
     float half_size = 0.5 * water_size;
     vec2 uv = (aPos.xz + vec2(half_size)) / water_size;
+	vUV = uv;
+
 
     // Displace the vertex in Y using the simulated height u(x,z).
     float h = sampleHeight(uv);
