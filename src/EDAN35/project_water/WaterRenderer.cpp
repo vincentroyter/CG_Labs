@@ -1,12 +1,67 @@
+// WaterRenderer.cpp
 #include "WaterRenderer.hpp"
-#include <algorithm>
 
+#include <algorithm>
+#include <vector>
+#include <cstdint>
+
+// ------------------------------------------------------------
+// Helper: upload all visual params as uniforms (includes nodes)
+// ------------------------------------------------------------
+static void setWaterVisualUniforms(GLuint program, const WaterVisualParams& vis)
+{
+	// Node effect (existing)
+	{
+		GLint loc = glGetUniformLocation(program, "u_showNodes");
+		if (loc >= 0) glUniform1i(loc, vis.showNodes ? 1 : 0);
+
+		loc = glGetUniformLocation(program, "u_nodeEps");
+		if (loc >= 0) glUniform1f(loc, vis.nodeEps);
+
+		loc = glGetUniformLocation(program, "u_nodeStrength");
+		if (loc >= 0) glUniform1f(loc, vis.nodeStrength);
+	}
+
+	// Future effects (safe even if shader doesn't declare them; loc will be -1)
+	{
+		auto set1i = [&](const char* name, bool b) {
+			GLint loc = glGetUniformLocation(program, name);
+			if (loc >= 0) glUniform1i(loc, b ? 1 : 0);
+			};
+		auto set1f = [&](const char* name, float f) {
+			GLint loc = glGetUniformLocation(program, name);
+			if (loc >= 0) glUniform1f(loc, f);
+			};
+		auto setInt = [&](const char* name, int v) {
+			GLint loc = glGetUniformLocation(program, name);
+			if (loc >= 0) glUniform1i(loc, v);
+			};
+
+		set1i("u_useHeightColoring", vis.useHeightColoring);
+
+		set1i("u_enableSpecular", vis.enableSpecular);
+		set1f("u_specularStrength", vis.specularStrength);
+		set1f("u_specularPower", vis.specularPower);
+
+		set1i("u_enableFoam", vis.enableFoam);
+		set1f("u_foamThreshold", vis.foamThreshold);
+
+		set1i("u_velocityColoring", vis.velocityColoring);
+
+		set1i("u_enableNoiseOverlay", vis.enableNoiseOverlay);
+		set1f("u_noiseScale", vis.noiseScale);
+		set1f("u_noiseSpeed", vis.noiseSpeed);
+
+		setInt("u_colorTheme", vis.colorTheme);
+	}
+}
+
+// ------------------------------------------------------------
+// WaterRenderer
+// ------------------------------------------------------------
 WaterRenderer::WaterRenderer()
 {
 	// Create GPU objects:
-	// VAO = stores vertex layout/state
-	// VBO = vertex buffer (positions from WaterMesh)
-	// EBO = index buffer (triangles from WaterMesh)
 	glGenVertexArrays(1, &m_vao);
 	glGenBuffers(1, &m_vbo);
 	glGenBuffers(1, &m_ebo);
@@ -16,9 +71,8 @@ WaterRenderer::WaterRenderer()
 	glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
 
-	// Vertex layout matches the vertex shader:
+	// Vertex layout:
 	// layout(location=0) in vec3 aPos;
-	// Note: mesh is flat and static; shader will displace Y using heightTex.
 	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(
 		0, 3, GL_FLOAT, GL_FALSE,
@@ -28,18 +82,15 @@ WaterRenderer::WaterRenderer()
 
 	glBindVertexArray(0);
 
-	// Height texture (stores simulation u[i,j] as a float grid)
-	// We sample this in the vertex shader to displace the mesh and compute normals.
+	// Height/velocity texture (RG32F: R=height u, G=vertical velocity v)
 	glGenTextures(1, &m_heightTex);
 	glBindTexture(GL_TEXTURE_2D, m_heightTex);
 
-	// Filtering:
-	// - LINEAR = smooth interpolation between simulation cells
-	// - NEAREST = shows raw grid
+	// Default filtering: smooth
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-	// Clamp to edge avoids sampling outside [0,1] when we take neighbor samples for normals.
+	// Clamp to edge for neighbor sampling when computing normals
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
@@ -48,7 +99,6 @@ WaterRenderer::WaterRenderer()
 
 WaterRenderer::~WaterRenderer()
 {
-	// Cleanup GPU resources
 	glDeleteTextures(1, &m_heightTex);
 	glDeleteBuffers(1, &m_ebo);
 	glDeleteBuffers(1, &m_vbo);
@@ -58,9 +108,6 @@ WaterRenderer::~WaterRenderer()
 void WaterRenderer::setMesh(const std::vector<float>& vertexData,
 	const std::vector<std::uint32_t>& indices)
 {
-	// Upload static WaterMesh:
-	// - positions only (flat grid)
-	// - indices define triangles
 	glBindVertexArray(m_vao);
 
 	glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
@@ -75,33 +122,31 @@ void WaterRenderer::setMesh(const std::vector<float>& vertexData,
 		indices.data(),
 		GL_STATIC_DRAW);
 
-	m_indexCount = (int)indices.size();
+	m_indexCount = static_cast<int>(indices.size());
 
 	glBindVertexArray(0);
 }
 
-void WaterRenderer::updateHeightTexture(const std::vector<float>& heights, int N)
+void WaterRenderer::updateHeightTexture(const std::vector<float>& packedHV, int N)
 {
-	// Upload simulation heightfield u as an NxN (Nsim) float texture each frame.
-	// This is the CPU to GPU bridge: WaterHeightfield (CPU) to shader (GPU).
+	// Upload simulation fields as an NxN float2 texture each frame.
+	// RG channels: R=height (u), G=vertical velocity (v)
 	if (N <= 0) return;
 
 	glBindTexture(GL_TEXTURE_2D, m_heightTex);
 
-	// If resolution changed (Nsim changed), reallocate texture storage.
 	if (m_heightN != N) {
 		m_heightN = N;
 		glTexImage2D(GL_TEXTURE_2D, 0,
-			GL_R32F, N, N, 0,
-			GL_RED, GL_FLOAT,
-			heights.data());
+			GL_RG32F, N, N, 0,
+			GL_RG, GL_FLOAT,
+			packedHV.data());
 	}
 	else {
-		// Same resolution: update texels only.
 		glTexSubImage2D(GL_TEXTURE_2D, 0,
 			0, 0, N, N,
-			GL_RED, GL_FLOAT,
-			heights.data());
+			GL_RG, GL_FLOAT,
+			packedHV.data());
 	}
 
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -109,7 +154,6 @@ void WaterRenderer::updateHeightTexture(const std::vector<float>& heights, int N
 
 void WaterRenderer::setHeightFiltering(bool nearest)
 {
-	// GUI available toggle between NEAREST (blocky) and LINEAR (smooth).
 	glBindTexture(GL_TEXTURE_2D, m_heightTex);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
@@ -124,13 +168,14 @@ void WaterRenderer::render(GLuint shaderProgram,
 	const float* camera_pos_ws,
 	float water_size,
 	float sim_dx,
-	bool showNodes,
-	float nodeEps,
-	float nodeStrength)
+	const WaterVisualParams& vis)
 {
-	// Bind shader and update uniforms.
+	if (shaderProgram == 0u || m_vao == 0u || m_indexCount <= 0)
+		return;
+
 	glUseProgram(shaderProgram);
 
+	// --- Matrices / camera / lighting ---
 	glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "world_to_clip"), 1, GL_FALSE, world_to_clip);
 	glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model_to_world"), 1, GL_FALSE, model_to_world);
 	glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "normal_to_world"), 1, GL_FALSE, normal_to_world);
@@ -141,21 +186,25 @@ void WaterRenderer::render(GLuint shaderProgram,
 	glUniform1f(glGetUniformLocation(shaderProgram, "water_size"), water_size);
 	glUniform1f(glGetUniformLocation(shaderProgram, "sim_dx"), sim_dx);
 
-	// Bind height texture to texture unit 0 and point sampler to it.
+	// --- Bind height/velocity texture to texture unit 0 ---
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, m_heightTex);
-	glUniform1i(glGetUniformLocation(shaderProgram, "heightTex"), 0);
 
-	glUniform1i(glGetUniformLocation(shaderProgram, "u_showNodes"), showNodes ? 1 : 0);
-	glUniform1f(glGetUniformLocation(shaderProgram, "u_nodeEps"), nodeEps);
-	glUniform1f(glGetUniformLocation(shaderProgram, "u_nodeStrength"), nodeStrength);
+	// IMPORTANT: set sampler uniform to match bound unit (0)
+	{
+		const GLint heightLoc = glGetUniformLocation(shaderProgram, "heightTex");
+		if (heightLoc >= 0) glUniform1i(heightLoc, 0);
+	}
 
+	// --- Visual params (includes node effect) ---
+	setWaterVisualUniforms(shaderProgram, vis);
 
-	// Draw static grid (WaterMesh). Vertex shader displaces it into water surface.
+	// --- Draw ---
 	glBindVertexArray(m_vao);
-	glDrawElements(GL_TRIANGLES, m_indexCount, GL_UNSIGNED_INT, nullptr);
+	glDrawElements(GL_TRIANGLES, m_indexCount, GL_UNSIGNED_INT, (void*)0);
 	glBindVertexArray(0);
 
+	// Optional cleanup
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glUseProgram(0);
 }

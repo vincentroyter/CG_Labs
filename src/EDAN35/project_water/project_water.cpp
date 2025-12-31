@@ -10,6 +10,9 @@
 #include "WaterHeightfield.hpp"
 #include "WaterMesh.hpp"
 #include "WaterRenderer.hpp"
+#include "WaterUI.hpp"
+#include "DriverSource.hpp"
+
 
 #include <imgui.h>
 #include <glm/glm.hpp>
@@ -24,49 +27,7 @@
 #include <string>
 #include <vector>
 
-// ============================================================
-// Drivers
-// ============================================================
-enum class DriverType { Point, Line };
 static constexpr float PI = 3.14159265358979323846f;
-
-struct DriverSource
-{
-	DriverType type = DriverType::Point;
-
-	// Master on/off
-	bool enabled = true;
-
-	// Behavior toggles
-	bool oscOn = true;     // sine oscillation on/off
-	bool spinOn = false;   // spin/orbit on/off
-
-	// Core parameters
-	float freqHz = 3.0f;
-
-	// IMPORTANT: in your current implementation this is "target height",
-	// not velocity. Keep small or it will blow up.
-	float amp = -0.20f;
-
-	// "Thickness" in cells (point footprint / line thickness)
-	float width = 5.0f;
-
-	// Center position stored normalized [0,1]
-	glm::vec2 pos01 = glm::vec2(0.5f, 0.5f);
-
-	// Spin/orbit parameters
-	float spinHz = 0.25f;        // spin/orbit speed
-	float spinPhaseRad = 0.0f;   // phase offset (radians)
-
-	// For POINT: orbit radius in normalized units [0..1]
-	float orbitRadius01 = 0.03f;
-
-	// LINE-specific
-	float angleRad = 0.0f;  // base orientation of the line (radians)
-	float length01 = 1.0f;  // 1.0 = spans to bounds along that direction
-
-	std::string name;
-};
 
 // ============================================================
 // ProjectWater
@@ -231,7 +192,29 @@ void edan35::ProjectWater::run()
 	WaterRenderer    renderer;
 
 	renderer.setMesh(mesh.vertexData(), mesh.indices());
-	renderer.updateHeightTexture(sim.heights(), sim.N());
+	renderer.updateHeightTexture(sim.packedHV(), sim.N());
+
+	auto applyResolution = [&](int newNsim, int newNr)
+		{
+			// Clamp to valid ranges (same as UI)
+			newNsim = std::clamp(newNsim, 16, 512);
+			newNr = std::clamp(newNr, 32, 2048);
+
+			// Update stored values
+			Nsim = newNsim;
+			Nr = newNr;
+
+			// Recreate simulation + mesh
+			sim = WaterHeightfield(Nsim, SIZE);
+			mesh = WaterMesh(Nr, SIZE);
+
+			// Re-upload mesh to GPU
+			renderer.setMesh(mesh.vertexData(), mesh.indices());
+
+			// Re-upload heights texture (forces texture reallocation)
+			renderer.updateHeightTexture(sim.packedHV(), sim.N());
+		};
+
 
 	// ---- Shader initialization ----
 	ShaderProgramManager program_manager;
@@ -254,6 +237,7 @@ void edan35::ProjectWater::run()
 	float ui_c = sim.waveSpeed();
 	float ui_velDamp = sim.velDamp();
 	float ui_maxSlope = sim.maxSlope();
+	bool ui_useOpenBoundary = sim.isOpenBoundary();
 
 	// Mouse interaction UI (NOTE: used as "per second", multiplied by dt)
 	float ui_clickMag = 20.0f;
@@ -265,6 +249,29 @@ void edan35::ProjectWater::run()
 	bool  ui_showNodes = true;
 	float ui_nodeEps = 0.01f;
 	float ui_nodeStrength = 0.85f;
+
+	// Height coloring effect
+	bool ui_useHeightColoring = false;
+	int  ui_colorTheme = 0; // 0=Ocean, 1=Thermal, 2=Psychedelic
+
+	// Specular
+	bool  ui_enableSpecular = true;
+	float ui_specularStrength = 0.15f;
+	float ui_specularPower = 64.0f;
+
+	// Foam (prepared)
+	bool  ui_enableFoam = false;
+	float ui_foamThreshold = 0.5f;
+
+	// Velocity viz (prepared)
+	bool ui_velocityColoring = false;
+
+
+	// Visual params bundle (includes node effect + future effects)
+	WaterVisualParams vis;
+
+
+
 
 	// Resolution UI
 	int ui_Nsim = Nsim;
@@ -284,6 +291,52 @@ void edan35::ProjectWater::run()
 	bool shader_reload_failed = false;
 
 	float simTime = 0.0f;
+
+	// ============================================================
+	// UI setup
+	// ============================================================
+	WaterUI ui;
+	WaterUIState uiState;
+
+	uiState.waveSpeed = &ui_c;
+	uiState.velDamp = &ui_velDamp;
+	uiState.maxSlope = &ui_maxSlope;
+
+	uiState.clickMag = &ui_clickMag;
+	uiState.clickRadius = &ui_clickRadius;
+
+	uiState.nearestHeight = &ui_nearestHeight;
+	uiState.showNodes = &ui_showNodes;
+	uiState.nodeEps = &ui_nodeEps;
+	uiState.nodeStrength = &ui_nodeStrength;
+
+	uiState.useHeightColoring = &ui_useHeightColoring;
+	uiState.colorTheme = &ui_colorTheme;
+
+	uiState.enableSpecular = &ui_enableSpecular;
+	uiState.specularStrength = &ui_specularStrength;
+	uiState.specularPower = &ui_specularPower;
+
+	uiState.enableFoam = &ui_enableFoam;
+	uiState.foamThreshold = &ui_foamThreshold;
+
+	uiState.velocityColoring = &ui_velocityColoring;
+
+	uiState.openBoundary = &ui_useOpenBoundary;
+
+	uiState.Nsim = &ui_Nsim;
+	uiState.Nr = &ui_Nr;
+
+	uiState.drivers = &drivers;
+	uiState.selectedDriver = &selectedDriver;
+	uiState.driverCounter = &driverCounter;
+
+	uiState.setCameraTopDown = setCameraTopDown;
+	uiState.setCameraDefault = setCameraDefault;
+	uiState.resetSurface = [&]() { sim.reset(); };
+	uiState.applyResolution = applyResolution;
+
+
 
 	while (!glfwWindowShouldClose(window)) {
 		// ---- Timing ----
@@ -362,13 +415,16 @@ void edan35::ProjectWater::run()
 		sim.setWaveSpeed(ui_c);
 		sim.setVelDamp(ui_velDamp);
 		sim.setMaxSlope(ui_maxSlope);
+		sim.setOpenBoundary(ui_useOpenBoundary);
+
+
 
 		glm::mat4 model_to_world(1.0f);
 		glm::mat4 world_to_clip = mCamera.GetWorldToClipMatrix();
 		glm::mat4 normal_to_world = glm::transpose(glm::inverse(model_to_world));
 
 		// ============================================================
-		// 1) Mouse interaction: click/hold/drag splash
+		// 1) Mouse interaction: impulse on click + stable "finger press" while holding
 		// ============================================================
 		if (!io.WantCaptureMouse) {
 			auto lmb = inputHandler.GetMouseState(GLFW_MOUSE_BUTTON_LEFT);
@@ -381,14 +437,39 @@ void edan35::ProjectWater::run()
 				if (pickWaterGrid(mx, my, framebuffer_width, framebuffer_height,
 					world_to_clip, model_to_world, SIZE, Nsim, gx, gy))
 				{
-					// strength per second -> integrate over dt so click/hold feels consistent
-					const float mag_dt = ui_clickMag * dt;
+					// --- A1) Impulse ONLY on JUST_PRESSED (splash) ---
+					if (lmb & JUST_PRESSED) {
+						// UI slider is "per second" -> convert to one-shot impulse magnitude.
+						// Tune the 0.03f factor if you want more/less splash.
+						float impulse = ui_clickMag * 0.03f;
+						sim.disturb(gx, gy, impulse, ui_clickRadius);
+					}
 
-					// Click or Hold both apply same amount per frame
-					sim.disturb(gx, gy, mag_dt, ui_clickRadius);
+					// --- A2) Stable finger press while holding (spring to target height) ---
+					if (lmb & PRESSED) {
+						// Convert the same UI slider into a target depth.
+						// Keep this in a sane range so it never explodes.
+						float targetU = std::clamp(0.01f * ui_clickMag, -0.35f, 0.35f);
+
+
+						// Spring stiffness & damping (stable values; you can expose to UI later)
+						const float k_press = 300.0f;
+						const float d_press = 25.0f;
+
+						// Use your existing stable driver:
+						sim.pullPointTargetHeight(
+							gx, gy,
+							dt,
+							targetU,
+							float(ui_clickRadius),
+							k_press,
+							d_press
+						);
+					}
 				}
 			}
 		}
+
 
 		// ============================================================
 		// 2) Driver sources (multi)
@@ -400,8 +481,9 @@ void edan35::ProjectWater::run()
 			// target height: static when oscOff, sine when oscOn
 			float targetU = d.amp;
 			if (d.oscOn) {
-				targetU = d.amp * std::sin(2.0f * PI * d.freqHz * simTime);
+				targetU = d.amp * std::sin(2.0f * PI * d.freqHz * simTime + d.oscPhaseRad);
 			}
+
 
 			// base center
 			glm::vec2 p01 = d.pos01;
@@ -467,12 +549,29 @@ void edan35::ProjectWater::run()
 		sim.update(dt);
 
 		renderer.setHeightFiltering(ui_nearestHeight);
-		renderer.updateHeightTexture(sim.heights(), sim.N());
+		renderer.updateHeightTexture(sim.packedHV(), sim.N());
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glm::vec3 light_dir_ws = glm::normalize(glm::vec3(-0.4f, -1.0f, -0.2f));
 		glm::vec3 cam_pos_ws = mCamera.mWorld.GetTranslation();
+
+		// Fill visual params from UI (node effect included)
+		vis.showNodes = ui_showNodes;
+		vis.nodeEps = ui_nodeEps;
+		vis.nodeStrength = ui_nodeStrength;
+
+		vis.useHeightColoring = ui_useHeightColoring;
+		vis.colorTheme = ui_colorTheme;
+
+		vis.enableSpecular = ui_enableSpecular;
+		vis.specularStrength = ui_specularStrength;
+		vis.specularPower = ui_specularPower;
+
+		vis.enableFoam = ui_enableFoam;
+		vis.foamThreshold = ui_foamThreshold;
+
+		vis.velocityColoring = ui_velocityColoring;
 
 		renderer.render(
 			water_shader,
@@ -483,233 +582,21 @@ void edan35::ProjectWater::run()
 			glm::value_ptr(cam_pos_ws),
 			SIZE,
 			sim.dx(),
-			ui_showNodes,
-			ui_nodeEps,
-			ui_nodeStrength
+			vis
 		);
+
+
 
 		// ============================================================
 		// GUI
 		// ============================================================
-		if (show_gui) {
-			ImGui::Begin("Water Project");
+		if (show_gui)
+			ui.draw(uiState, Nsim, Nr, fps_display);
 
-			ImGui::Text("FPS: %.1f", fps_display);
-			ImGui::Separator();
-
-			// -----------------------------
-			// Help
-			// -----------------------------
-			if (ImGui::CollapsingHeader("Help", ImGuiTreeNodeFlags_DefaultOpen)) {
-				ImGui::BulletText("WASD + mouse = move camera");
-				ImGui::BulletText("LMB on water = splash / paint");
-				ImGui::BulletText("R = reload shaders");
-				ImGui::BulletText("F2/F3 toggle gui/logs");
-			}
-
-			ImGui::Separator();
-			ImGui::Text("Camera & simulation");
-
-			if (ImGui::Button("Top-down view")) {
-				setCameraTopDown();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Default view")) {
-				setCameraDefault();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Reset surface")) {
-				sim.reset();
-			}
-
-			ImGui::Separator();
-			if (ImGui::CollapsingHeader("Mesh Resolution (recreate on Apply)")) {
-				ImGui::Text("Current: Nsim=%d, Nr=%d", Nsim, Nr);
-				ImGui::SliderInt("Nsim (simulation)", &ui_Nsim, 16, 512);
-				ImGui::SliderInt("Nr (render mesh)", &ui_Nr, 32, 2048);
-				if (ui_Nr < ui_Nsim) ui_Nr = ui_Nsim;
-
-				if (ImGui::Button("Apply Nsim/Nr")) {
-					ui_Nsim = std::clamp(ui_Nsim, 16, 512);
-					ui_Nr = std::clamp(ui_Nr, 32, 2048);
-					if (ui_Nr < ui_Nsim) ui_Nr = ui_Nsim;
-
-					Nsim = ui_Nsim;
-					Nr = ui_Nr;
-
-					sim = WaterHeightfield(Nsim, SIZE);
-					mesh = WaterMesh(Nr, SIZE);
-
-					renderer.setMesh(mesh.vertexData(), mesh.indices());
-					renderer.updateHeightTexture(sim.heights(), sim.N());
-
-					// resync UI from sim
-					ui_c = sim.waveSpeed();
-					ui_velDamp = sim.velDamp();
-					ui_maxSlope = sim.maxSlope();
-				}
-
-			}
-		}
-
-
-
-			// -----------------------------
-			// Global simulation
-			// -----------------------------
-			if (ImGui::CollapsingHeader("Global simulation", ImGuiTreeNodeFlags_DefaultOpen)) {
-				ImGui::Text("Wave / damping");
-				ImGui::SliderFloat("Wave speed c", &ui_c, 0.2f, 3.0f, "%.2f");
-				ImGui::SliderFloat("Damping gamma (1/s)", &ui_velDamp, 0.0f, 6.0f, "%.2f");
-				ImGui::SliderFloat("Clamp maxSlope", &ui_maxSlope, 0.05f, 1.5f, "%.2f");
-
-				ImGui::Separator();
-				ImGui::Text("Rendering");
-				ImGui::Checkbox("Height sampling: NEAREST", &ui_nearestHeight);
-
-				ImGui::Separator();
-				ImGui::Text("Node/zero-crossing visualization");
-				ImGui::Checkbox("Show node lines", &ui_showNodes);
-				ImGui::SliderFloat("Node threshold (eps)", &ui_nodeEps, 0.0001f, 0.05f, "%.4f", ImGuiSliderFlags_Logarithmic);
-				ImGui::SliderFloat("Node strength", &ui_nodeStrength, 0.0f, 1.0f, "%.2f");
-
-
-			// -----------------------------
-			// Mouse interaction
-			// -----------------------------
-			if (ImGui::CollapsingHeader("Mouse interaction", ImGuiTreeNodeFlags_DefaultOpen)) {
-				ImGui::Text("Click = splash. Hold+drag = continuous splash.");
-
-				ImGui::SliderFloat("Splash strength (per sec)", &ui_clickMag, -50.0f, 50.0f, "%.3f");
-				ImGui::SliderInt("Splash radius (cells)", &ui_clickRadius, 1, 25);
-
-				if (ImGui::Button("Reset splash defaults")) {
-					ui_clickMag = 20.0f;
-					ui_clickRadius = 4;
-				}
-			}
-
-			// -----------------------------
-			// Driver sources
-			// -----------------------------
-			if (ImGui::CollapsingHeader("Driver sources")) {
-
-				if (ImGui::Button("Add point")) {
-					DriverSource d;
-					d.type = DriverType::Point;
-					d.pos01 = glm::vec2(0.5f, 0.5f);
-					d.name = "Point " + std::to_string(driverCounter++);
-					drivers.push_back(d);
-					selectedDriver = int(drivers.size()) - 1;
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Add line")) {
-					DriverSource d;
-					d.type = DriverType::Line;
-					d.pos01 = glm::vec2(0.5f, 0.5f);
-					d.angleRad = 0.0f;
-					d.length01 = 1.0f;
-					d.name = "Line " + std::to_string(driverCounter++);
-					drivers.push_back(d);
-					selectedDriver = int(drivers.size()) - 1;
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("All ON")) {
-					for (auto& d : drivers) d.enabled = true;
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("All OFF")) {
-					for (auto& d : drivers) d.enabled = false;
-				}
-
-				ImGui::Separator();
-
-				if (ImGui::BeginListBox("##drivers", ImVec2(-FLT_MIN, 140.0f))) {
-					for (int i = 0; i < (int)drivers.size(); ++i) {
-						bool isSelected = (selectedDriver == i);
-
-						std::string label = (drivers[i].enabled ? "[on] " : "[off] ");
-						label += drivers[i].name;
-						label += (drivers[i].type == DriverType::Point) ? " (Point)" : " (Line)";
-
-						if (ImGui::Selectable(label.c_str(), isSelected)) {
-							selectedDriver = i;
-						}
-						if (isSelected) ImGui::SetItemDefaultFocus();
-					}
-					ImGui::EndListBox();
-				}
-
-				if (selectedDriver >= 0 && selectedDriver < (int)drivers.size()) {
-					DriverSource& d = drivers[selectedDriver];
-
-					ImGui::Separator();
-					ImGui::Text("Selected: %s", d.name.c_str());
-
-					ImGui::Checkbox("Enabled", &d.enabled);
-
-					ImGui::Checkbox("Oscillation (sine)", &d.oscOn);
-					ImGui::SameLine();
-					ImGui::Checkbox("Spin/orbit", &d.spinOn);
-
-					ImGui::Separator();
-					ImGui::Text("Core");
-					ImGui::SliderFloat("Frequency (Hz)", &d.freqHz, 0.1f, 20.0f, "%.2f");
-					ImGui::SliderFloat("Amplitude (height)", &d.amp, -1.0f, 1.0f, "%.3f");
-					ImGui::SliderFloat2("Center (u,v)", &d.pos01.x, 0.0f, 1.0f, "%.3f");
-					ImGui::SliderFloat("Width (cells)", &d.width, 1.0f, 20.0f, "%.1f");
-
-					ImGui::Separator();
-					ImGui::Text("Spin/orbit");
-					ImGui::BeginDisabled(!d.spinOn);
-					ImGui::SliderFloat("Spin frequency (Hz)", &d.spinHz, 0.0f, 5.0f, "%.2f");
-					ImGui::SliderAngle("Spin phase", &d.spinPhaseRad, -180.0f, 180.0f);
-
-					if (d.type == DriverType::Point) {
-						ImGui::SliderFloat("Orbit radius", &d.orbitRadius01, 0.0f, 0.35f, "%.3f");
-					}
-					ImGui::EndDisabled();
-
-					if (d.type == DriverType::Line) {
-						ImGui::Separator();
-						ImGui::Text("Line shape");
-						ImGui::SliderFloat("Length", &d.length01, 0.05f, 1.0f, "%.2f");
-						ImGui::SliderAngle("Base orientation", &d.angleRad, -180.0f, 180.0f);
-					}
-
-					ImGui::Separator();
-					if (ImGui::Button("Delete source")) {
-						drivers.erase(drivers.begin() + selectedDriver);
-						if (drivers.empty()) selectedDriver = -1;
-						else selectedDriver = std::clamp(selectedDriver, 0, (int)drivers.size() - 1);
-					}
-				}
-				else {
-					ImGui::TextDisabled("No driver selected.");
-				}
-			}
-
-			// -----------------------------
-			// Reset / safety
-			// -----------------------------
-			if (ImGui::CollapsingHeader("Reset / safety")) {
-				if (ImGui::Button("Reset global defaults")) {
-					ui_c = 1.2f;
-					ui_velDamp = 1.0f;
-					ui_maxSlope = 0.6f;
-				}
-				ImGui::SameLine();
-				if (ImGui::Button("Clear all drivers")) {
-					drivers.clear();
-					selectedDriver = -1;
-				}
-			}
-
-			ImGui::End();
-		}
 
 		if (show_logs)
 			Log::View::Render();
+
 
 		mWindowManager.RenderImGuiFrame(show_gui);
 		glfwSwapBuffers(window);

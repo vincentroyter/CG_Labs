@@ -19,6 +19,10 @@ public:
     // Access for mesh update
 	float height(int x, int y) const { return m_u[idx(x, y)]; }
 	const std::vector<float>& heights() const { return m_u; }
+	const std::vector<float>& velocities() const { return m_v; }
+	const std::vector<float>& packedHV() const { return m_packedHV; }
+
+
 
 	// --- UI parameter accessors ---
 	float waveSpeed() const { return m_c; }
@@ -32,6 +36,18 @@ public:
 
 	float maxSlope() const { return m_maxSlope; }
 	void  setMaxSlope(float s) { m_maxSlope = s; }
+	void setOpenBoundary(bool enabled) {
+		if (m_openBoundary != enabled) {
+			m_openBoundary = enabled;
+			std::fill(m_gTop.begin(), m_gTop.end(), 0.0f);
+			std::fill(m_gBottom.begin(), m_gBottom.end(), 0.0f);
+			std::fill(m_gLeft.begin(), m_gLeft.end(), 0.0f);
+			std::fill(m_gRight.begin(), m_gRight.end(), 0.0f);
+		}
+	}
+
+	bool isOpenBoundary() const { return m_openBoundary; }
+
 
 void pullPointTargetHeight(int x, int y, float dt, float targetU, float widthCells, float k, float d);
 void pullSegmentTargetHeight(
@@ -59,19 +75,33 @@ private:
 	float m_c = 1.2f;     // wave speed in world units / s
 	float m_velDampPerSec = 1.0f; // damping rate gamma [1/s]  (tune 0..10)
 	float m_maxSlope = 0.6f;     // clamp strength (height per meter-ish)
+	bool m_openBoundary = false;
+
+	float m_vMax = 6.0f; // hard clamp on velocity (tune 2..10)
+
+
 
 	// State
 	std::vector<float> m_u;      // height
+	std::vector<float> m_uNew;   // height buffer for next step (reused, avoids allocations)
 	std::vector<float> m_v;      // vertical velocity
+	std::vector<float> m_packedHV; // interleaved [h0,v0,h1,v1,...]
+
+
+
+	std::vector<float> m_gTop, m_gBottom, m_gLeft, m_gRight;
+
 
 
     std::size_t idx(int x, int y) const { return std::size_t(y) * std::size_t(m_n) + std::size_t(x); }
 
     void step(float dt);        // one stable substep
-    void applyBoundaries();     // clamp/reflect boundary
+	void applyBoundaries(float dt);
 	float laplacianU(int x, int y) const;
 
 	bool m_lockWaterLevel = true;
 	void removeMeanHeight();
+	void updatePackedHV();
+
 
 };

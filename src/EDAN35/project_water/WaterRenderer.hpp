@@ -3,6 +3,35 @@
 #include <cstdint>
 #include <glad/glad.h>
 
+// All shader/visual toggles collected in one place.
+// This includes the existing "node" effect.
+struct WaterVisualParams
+{
+	// Existing node effect (keep!)
+	bool  showNodes = false;
+	float nodeEps = 0.01f;  // threshold in height units
+	float nodeStrength = 0.5f;   // 0..1-ish
+
+	// New effects (we'll implement later, but params are ready)
+	bool  useHeightColoring = false;
+
+	bool  enableSpecular = true;
+	float specularStrength = 0.15f;
+	float specularPower = 64.0f;
+
+	bool  enableFoam = false;
+	float foamThreshold = 0.5f;
+
+	bool  velocityColoring = false;
+
+	bool  enableNoiseOverlay = false;
+	float noiseScale = 2.0f;
+	float noiseSpeed = 1.0f;
+
+	// 0=Ocean, 1=Thermal, 2=Psychedelic
+	int   colorTheme = 0;
+};
+
 class WaterRenderer {
 public:
 	WaterRenderer();
@@ -12,7 +41,8 @@ public:
 		const std::vector<std::uint32_t>& indices);
 
 	// Call every frame (upload sim heightfield as float texture)
-	void updateHeightTexture(const std::vector<float>& heights, int N);
+	void updateHeightTexture(const std::vector<float>& packedHV, int N);
+
 
 	void render(GLuint shaderProgram,
 		const float* world_to_clip,
@@ -22,9 +52,8 @@ public:
 		const float* camera_pos_ws,
 		float water_size,
 		float sim_dx,
-		bool showNodes,
-		float nodeEps,
-		float nodeStrength);
+		const WaterVisualParams& vis);
+
 
 	void setHeightFiltering(bool nearest);
 

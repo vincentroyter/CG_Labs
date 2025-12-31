@@ -8,7 +8,7 @@ uniform mat4 model_to_world;
 uniform mat4 normal_to_world;
 
 // Heightfield from CPU simulation.
-// heightTex stores u[i,j] as a float texture (GL_R32F).
+// heightTex stores (u,v) as RG float texture (GL_RG32F): R=height, G=vertical velocity
 uniform sampler2D heightTex;
 
 // Used to map mesh xz in [-size/2, +size/2] to uv in [0,1].

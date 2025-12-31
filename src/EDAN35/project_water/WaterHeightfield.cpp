@@ -15,17 +15,47 @@ float WaterHeightfield::laplacianU(int x, int y) const
 void WaterHeightfield::reset()
 {
 	std::fill(m_u.begin(), m_u.end(), 0.0f);
+	std::fill(m_uNew.begin(), m_uNew.end(), 0.0f);
 	std::fill(m_v.begin(), m_v.end(), 0.0f);
+	std::fill(m_packedHV.begin(), m_packedHV.end(), 0.0f);
+
+
+	std::fill(m_gTop.begin(), m_gTop.end(), 0.0f);
+	std::fill(m_gBottom.begin(), m_gBottom.end(), 0.0f);
+	std::fill(m_gLeft.begin(), m_gLeft.end(), 0.0f);
+	std::fill(m_gRight.begin(), m_gRight.end(), 0.0f);
+
 }
 
+void WaterHeightfield::updatePackedHV()
+{
+	const int N = m_n;
+	const int count = N * N;
+	if ((int)m_packedHV.size() != count * 2) {
+		m_packedHV.resize(count * 2);
+	}
+	for (int i = 0; i < count; ++i) {
+		m_packedHV[2 * i + 0] = m_u[i];
+		m_packedHV[2 * i + 1] = m_v[i];
+	}
+}
+
+
 WaterHeightfield::WaterHeightfield(int n, float size)
-	: m_n(n)                                   // grid resolution (Nsim)
-	, m_size(size)                              // physical width/depth
-	, m_dx(size / float(n - 1))                 // h in the PDF (grid spacing)
-	, m_u(std::size_t(n)* std::size_t(n), 0.0f) // u[i,j] in the PDF (height)
-	, m_v(std::size_t(n)* std::size_t(n), 0.0f) // v[i,j] in the PDF (velocity)
+	: m_n(n)
+	, m_size(size)
+	, m_dx(size / float(n - 1))
+	, m_u(std::size_t(n)* std::size_t(n), 0.0f)
+	, m_uNew(std::size_t(n)* std::size_t(n), 0.0f)
+	, m_v(std::size_t(n)* std::size_t(n), 0.0f)
+	, m_packedHV(std::size_t(n)* std::size_t(n) * 2, 0.0f)
+	, m_gTop(n, 0.0f)
+	, m_gBottom(n, 0.0f)
+	, m_gLeft(n, 0.0f)
+	, m_gRight(n, 0.0f)
 {
 }
+
 
 
 void WaterHeightfield::update(float dt)
@@ -35,7 +65,8 @@ void WaterHeightfield::update(float dt)
 
 	// CFL condition: dt < h / c  (use a conservative safety factor)
 	const float h = m_dx;
-	const float dt_max = 0.25f * (h / m_c);
+	const float dt_max = 0.25f * (h / (m_c * 1.41421356f)); // 2D safety: /sqrt(2)
+
 
 	int steps = (dt > 0.0f) ? int(std::ceil(dt / dt_max)) : 1;
 	steps = std::clamp(steps, 1, 16);
@@ -43,6 +74,9 @@ void WaterHeightfield::update(float dt)
 	const float dt_sub = dt / float(steps);
 	for (int s = 0; s < steps; ++s)
 		step(dt_sub);
+
+	updatePackedHV();
+
 }
 
 void WaterHeightfield::step(float dt)
@@ -58,7 +92,9 @@ void WaterHeightfield::step(float dt)
 
 	// Store u' (unew) explicitly like the to make it easier to follow the reference
 	// Note: We only update interior cells; boundaries are handled separately.
-	std::vector<float> u_new = m_u;
+	// Reuse persistent buffer (avoids allocating each substep)
+	std::copy(m_u.begin(), m_u.end(), m_uNew.begin());
+
 
 	// --- 1) Column Simulation Step -----------------------------------
 	// forall i,j:
@@ -82,39 +118,126 @@ void WaterHeightfield::step(float dt)
 			// dt-correct damping: v *= exp(-gamma * dt)
 			m_v[i] *= std::exp(-m_velDampPerSec * dt);
 
+			// HARD CLAMP (prevents runaway explosions)
+			m_v[i] = std::clamp(m_v[i], -m_vMax, m_vMax);
 
-			// u_new = u + v * dt
-			u_new[i] = m_u[i] + m_v[i] * dt;
+			m_uNew[i] = m_u[i] + m_v[i] * dt;
+
+
 		}
 	}
 
 	// --- 3) Commit update (u = unew) -----------------------------------
-	m_u.swap(u_new);
+	m_u.swap(m_uNew);
+
+
+	if (m_maxSlope > 0.0f) {
+		const float maxDu = m_maxSlope * m_dx; // slope * distance -> max height diff per edge
+		for (int y = 1; y < m_n - 1; ++y) {
+			for (int x = 1; x < m_n - 1; ++x) {
+				const std::size_t i = idx(x, y);
+				float u = m_u[i];
+
+				// clamp relative to neighbor values (simple limiter)
+				float uL = m_u[idx(x - 1, y)];
+				float uR = m_u[idx(x + 1, y)];
+				float uD = m_u[idx(x, y - 1)];
+				float uU = m_u[idx(x, y + 1)];
+
+				u = std::min(u, uL + maxDu);
+				u = std::max(u, uL - maxDu);
+				u = std::min(u, uR + maxDu);
+				u = std::max(u, uR - maxDu);
+				u = std::min(u, uD + maxDu);
+				u = std::max(u, uD - maxDu);
+				u = std::min(u, uU + maxDu);
+				u = std::max(u, uU - maxDu);
+
+				m_u[i] = u;
+			}
+		}
+	}
+
 
 	// --- 4) Boundary conditions ---------------------------------------
-	applyBoundaries();
+	applyBoundaries(dt);
 
 	if (m_lockWaterLevel)
 		removeMeanHeight();
 }
 
-void WaterHeightfield::applyBoundaries()
+void WaterHeightfield::applyBoundaries(float dt)
 {
-	// Here we implement a reflective boundary:
-	// copy neighbor height and zero velocity at the border.
-	for (int x = 0; x < m_n; ++x) {
-		m_u[idx(x, 0)] = m_u[idx(x, 1)];
-		m_u[idx(x, m_n - 1)] = m_u[idx(x, m_n - 2)];
-		m_v[idx(x, 0)] = 0.0f;
-		m_v[idx(x, m_n - 1)] = 0.0f;
+	if (m_openBoundary)
+	{
+		// Absorbing / radiating boundary (ghost memory g)
+		// g_new = (c*dt*u_interior + h*g_old) / (h + c*dt)
+		const float h = m_dx;
+		const float a = m_c * dt;          // c*dt
+		const float denom = h + a;
+
+		if (denom <= 0.0f) return;
+
+		// TOP (y=0) uses interior y=1
+		for (int x = 0; x < m_n; ++x) {
+			float u_in = m_u[idx(x, 1)];
+			float gnew = (a * u_in + h * m_gTop[x]) / denom;
+			m_gTop[x] = gnew;
+			m_u[idx(x, 0)] = gnew;
+		}
+
+		// BOTTOM (y=n-1) uses interior y=n-2
+		for (int x = 0; x < m_n; ++x) {
+			float u_in = m_u[idx(x, m_n - 2)];
+			float gnew = (a * u_in + h * m_gBottom[x]) / denom;
+			m_gBottom[x] = gnew;
+			m_u[idx(x, m_n - 1)] = gnew;
+		}
+
+		// LEFT (x=0) uses interior x=1
+		for (int y = 0; y < m_n; ++y) {
+			float u_in = m_u[idx(1, y)];
+			float gnew = (a * u_in + h * m_gLeft[y]) / denom;
+			m_gLeft[y] = gnew;
+			m_u[idx(0, y)] = gnew;
+		}
+
+		// RIGHT (x=n-1) uses interior x=n-2
+		for (int y = 0; y < m_n; ++y) {
+			float u_in = m_u[idx(m_n - 2, y)];
+			float gnew = (a * u_in + h * m_gRight[y]) / denom;
+			m_gRight[y] = gnew;
+			m_u[idx(m_n - 1, y)] = gnew;
+		}
+
+		// Optional: keep boundary velocities sane for any debug/visual use
+		for (int x = 0; x < m_n; ++x) {
+			m_v[idx(x, 0)] = m_v[idx(x, 1)];
+			m_v[idx(x, m_n - 1)] = m_v[idx(x, m_n - 2)];
+		}
+		for (int y = 0; y < m_n; ++y) {
+			m_v[idx(0, y)] = m_v[idx(1, y)];
+			m_v[idx(m_n - 1, y)] = m_v[idx(m_n - 2, y)];
+		}
 	}
-	for (int y = 0; y < m_n; ++y) {
-		m_u[idx(0, y)] = m_u[idx(1, y)];
-		m_u[idx(m_n - 1, y)] = m_u[idx(m_n - 2, y)];
-		m_v[idx(0, y)] = 0.0f;
-		m_v[idx(m_n - 1, y)] = 0.0f;
+	else
+	{
+		// Closed boundary: reflect height, kill velocity
+		for (int x = 0; x < m_n; ++x) {
+			m_u[idx(x, 0)] = m_u[idx(x, 1)];
+			m_u[idx(x, m_n - 1)] = m_u[idx(x, m_n - 2)];
+			m_v[idx(x, 0)] = 0.0f;
+			m_v[idx(x, m_n - 1)] = 0.0f;
+		}
+		for (int y = 0; y < m_n; ++y) {
+			m_u[idx(0, y)] = m_u[idx(1, y)];
+			m_u[idx(m_n - 1, y)] = m_u[idx(m_n - 2, y)];
+			m_v[idx(0, y)] = 0.0f;
+			m_v[idx(m_n - 1, y)] = 0.0f;
+		}
 	}
 }
+
 
 void WaterHeightfield::disturb(int x, int y, float magnitude, int radius)
 {
@@ -273,16 +396,6 @@ void WaterHeightfield::pullSegmentTargetHeight(
 		}
 	}
 }
-
-
-
-
-
-
-
-
-
-
 
 
 

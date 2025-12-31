@@ -13,7 +13,7 @@ target_sources(
     WaterRenderer.hpp
     WaterRenderer.cpp
     main.cpp
-)
+ "WaterUI.cpp")
 
 target_link_libraries(EDAN35_Project_Water PRIVATE assignment_setup)
 install(TARGETS EDAN35_Project_Water DESTINATION bin)
