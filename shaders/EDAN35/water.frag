@@ -35,11 +35,53 @@ uniform float u_foamThreshold;
 // Velocity visualization
 uniform bool  u_velocityColoring;
 
+// Derivative visualizers
+uniform bool  u_velocityEnabled;
+uniform float u_velocityScale;
+uniform float u_velocityThreshold;
+uniform float u_velocityStrength;
+uniform vec3  u_velocityColor;
+
+uniform bool  u_slopeEnabled;
+uniform float u_slopeScale;
+uniform float u_slopeThreshold;
+uniform float u_slopeStrength;
+uniform vec3  u_slopeColor;
+
+uniform bool  u_curvatureEnabled;
+uniform float u_curvatureScale;
+uniform float u_curvatureThreshold;
+uniform float u_curvatureStrength;
+uniform vec3  u_curvatureColor;
+
+
+
 out vec4 FragColor;
 
 // ------------------------------------------------------------
 // Helper functions
 // ------------------------------------------------------------
+
+float sampleHeight(vec2 uv)
+{
+    return texture(heightTex, uv).r;
+}
+
+float curvatureMag(vec2 uv)
+{
+    ivec2 ts = textureSize(heightTex, 0);
+    vec2 texel = 1.0 / vec2(ts);
+
+    float c  = sampleHeight(uv);
+    float hl = sampleHeight(uv - vec2(texel.x, 0.0));
+    float hr = sampleHeight(uv + vec2(texel.x, 0.0));
+    float hd = sampleHeight(uv - vec2(0.0, texel.y));
+    float hu = sampleHeight(uv + vec2(0.0, texel.y));
+
+    float lap = (hl + hr + hd + hu - 4.0 * c);
+    return abs(lap);
+}
+
 
 // Convert HSV color to RGB
 vec3 hsv2rgb(vec3 c)
@@ -102,13 +144,6 @@ void main()
         base = vec3(0.02, 0.30, 0.55);
     }
 
-    // Velocity coloring (uses absolute vertical velocity)
-    if (u_velocityColoring) {
-        float speed = abs(v);
-        float s = clamp(speed / 1.0, 0.0, 1.0);
-        base = mix(base, vec3(0.6, 0.95, 1.0), s);
-    }
-
     // Diffuse lighting
     vec3 col = base * (0.15 + 0.85 * ndotl);
 
@@ -119,12 +154,32 @@ void main()
         col += vec3(0.7) * spec * u_specularStrength;
     }
 
-    // Foam based on surface slope
-    if (u_enableFoam) {
-        float slope = sqrt(max(0.0, 1.0 - N.y * N.y));
-        float foam = smoothstep(u_foamThreshold, u_foamThreshold + 0.25, slope);
-        col = mix(col, vec3(0.92, 0.98, 1.0), foam);
-    }
+	// Velocity tint (abs vertical velocity)
+	if (u_velocityEnabled) {
+		float m = abs(v) * u_velocityScale;
+		float x = clamp(m - u_velocityThreshold, 0.0, 1.0);
+		x = smoothstep(0.0, 1.0, x);
+		col = mix(col, u_velocityColor, u_velocityStrength * x);
+	}
+
+	// Slope tint (first derivative magnitude)
+	if (u_slopeEnabled) {
+		float slope = sqrt(max(0.0, 1.0 - N.y * N.y));
+		float m = slope * u_slopeScale;
+		float x = clamp(m - u_slopeThreshold, 0.0, 1.0);
+		x = smoothstep(0.0, 1.0, x);
+		col = mix(col, u_slopeColor, u_slopeStrength * x);
+	}
+
+	// Curvature tint (second derivative magnitude)
+	if (u_curvatureEnabled) {
+		float curv = curvatureMag(vUV);
+		float m = curv * u_curvatureScale;
+		float x = clamp(m - u_curvatureThreshold, 0.0, 1.0);
+		x = smoothstep(0.0, 1.0, x);
+		col = mix(col, u_curvatureColor, u_curvatureStrength * x);
+	}
+
 
 
     // Node visualization (darken near height zero)

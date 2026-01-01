@@ -19,17 +19,30 @@ struct WaterVisualParams
 	float specularStrength = 0.15f;
 	float specularPower = 64.0f;
 
-	bool  enableFoam = false;
-	float foamThreshold = 0.5f;
-
-	bool  velocityColoring = false;
-
-	bool  enableNoiseOverlay = false;
-	float noiseScale = 2.0f;
-	float noiseSpeed = 1.0f;
-
 	// 0=Ocean, 1=Thermal, 2=Psychedelic
 	int   colorTheme = 0;
+
+	// Velocity visualization
+	bool  velocityEnabled = false;
+	float velocityScale = 1.0f;
+	float velocityThreshold = 0.0f;
+	float velocityStrength = 1.0f;
+	float velocityColor[3] = { 0.6f, 0.95f, 1.0f };
+
+	// First derivative (slope) visualization
+	bool  slopeEnabled = false;
+	float slopeScale = 1.0f;
+	float slopeThreshold = 0.5f;
+	float slopeStrength = 1.0f;
+	float slopeColor[3] = { 0.92f, 0.98f, 1.0f };
+
+	// Second derivative (curvature) visualization
+	bool  curvatureEnabled = false;
+	float curvatureScale = 1.0f;
+	float curvatureThreshold = 0.5f;
+	float curvatureStrength = 1.0f;
+	float curvatureColor[3] = { 1.0f, 0.6f, 0.2f };
+
 };
 
 class WaterRenderer {

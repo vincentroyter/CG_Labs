@@ -168,30 +168,84 @@ void WaterUI::draw(
 			ImGui::EndDisabled();
 		}
 
-		// -------------------------
-		// Foam (prepared; shader can implement later)
-		// -------------------------
 		ImGui::Separator();
-		ImGui::Text("Foam (prepared)");
+		ImGui::Text("Derivative visualizers");
 
-		if (s.enableFoam) {
-			ImGui::Checkbox("Enable foam", s.enableFoam);
-		}
-		if (s.foamThreshold) {
-			ImGui::BeginDisabled(!(s.enableFoam && *s.enableFoam));
-			SliderFloatWithInput("Foam threshold", s.foamThreshold, 0.0f, 2.0f, "%.3f");
+		// -------------------------
+		// Velocity magnitude
+		// -------------------------
+		if (ImGui::CollapsingHeader("Velocity magnitude", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (s.velocityEnabled) {
+				ImGui::Checkbox("Enable velocity tint", s.velocityEnabled);
+			}
+
+			ImGui::BeginDisabled(!(s.velocityEnabled && *s.velocityEnabled));
+
+			if (s.velocityScale)
+				SliderFloatWithInput("Velocity sensitivity", s.velocityScale, 0.0f, 10.0f, "%.2f");
+			if (s.velocityThreshold)
+				SliderFloatWithInput("Velocity threshold", s.velocityThreshold, 0.0f, 5.0f, "%.2f");
+			if (s.velocityStrength)
+				SliderFloatWithInput("Velocity strength", s.velocityStrength, 0.0f, 2.0f, "%.2f");
+
+			if (s.velocityColor) {
+				ImGui::TextUnformatted("Velocity color");
+				ImGui::ColorEdit3("##velcol", s.velocityColor);
+			}
+
 			ImGui::EndDisabled();
 		}
 
 		// -------------------------
-		// Velocity visualization (prepared)
+		// Slope magnitude (first derivative)
 		// -------------------------
-		ImGui::Separator();
-		ImGui::Text("Velocity");
+		if (ImGui::CollapsingHeader("Slope magnitude (1st derivative)", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (s.slopeEnabled) {
+				ImGui::Checkbox("Enable slope tint", s.slopeEnabled);
+			}
 
-		if (s.velocityColoring) {
-			ImGui::Checkbox("Velocity coloring", s.velocityColoring);
+			ImGui::BeginDisabled(!(s.slopeEnabled && *s.slopeEnabled));
+
+			if (s.slopeScale)
+				SliderFloatWithInput("Slope sensitivity", s.slopeScale, 0.0f, 10.0f, "%.2f");
+			if (s.slopeThreshold)
+				SliderFloatWithInput("Slope threshold", s.slopeThreshold, 0.0f, 2.0f, "%.2f");
+			if (s.slopeStrength)
+				SliderFloatWithInput("Slope strength", s.slopeStrength, 0.0f, 2.0f, "%.2f");
+
+			if (s.slopeColor) {
+				ImGui::TextUnformatted("Slope color");
+				ImGui::ColorEdit3("##slopecol", s.slopeColor);
+			}
+
+			ImGui::EndDisabled();
 		}
+
+		// -------------------------
+		// Curvature magnitude (second derivative)
+		// -------------------------
+		if (ImGui::CollapsingHeader("Curvature magnitude (2nd derivative)", ImGuiTreeNodeFlags_DefaultOpen)) {
+			if (s.curvatureEnabled) {
+				ImGui::Checkbox("Enable curvature tint", s.curvatureEnabled);
+			}
+
+			ImGui::BeginDisabled(!(s.curvatureEnabled && *s.curvatureEnabled));
+
+			if (s.curvatureScale)
+				SliderFloatWithInput("Curvature sensitivity", s.curvatureScale, 0.0f, 50.0f, "%.2f");
+			if (s.curvatureThreshold)
+				SliderFloatWithInput("Curvature threshold", s.curvatureThreshold, 0.0f, 5.0f, "%.2f");
+			if (s.curvatureStrength)
+				SliderFloatWithInput("Curvature strength", s.curvatureStrength, 0.0f, 2.0f, "%.2f");
+
+			if (s.curvatureColor) {
+				ImGui::TextUnformatted("Curvature color");
+				ImGui::ColorEdit3("##curvcol", s.curvatureColor);
+			}
+
+			ImGui::EndDisabled();
+		}
+
 
 
 

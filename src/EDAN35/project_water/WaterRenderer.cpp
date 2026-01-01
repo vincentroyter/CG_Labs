@@ -37,20 +37,35 @@ static void setWaterVisualUniforms(GLuint program, const WaterVisualParams& vis)
 			if (loc >= 0) glUniform1i(loc, v);
 			};
 
+		auto set3f = [&](const char* name, const float rgb[3]) {
+			GLint loc = glGetUniformLocation(program, name);
+			if (loc >= 0) glUniform3f(loc, rgb[0], rgb[1], rgb[2]);
+			};
+
+		set1i("u_velocityEnabled", vis.velocityEnabled);
+		set1f("u_velocityScale", vis.velocityScale);
+		set1f("u_velocityThreshold", vis.velocityThreshold);
+		set1f("u_velocityStrength", vis.velocityStrength);
+		set3f("u_velocityColor", vis.velocityColor);
+
+		set1i("u_slopeEnabled", vis.slopeEnabled);
+		set1f("u_slopeScale", vis.slopeScale);
+		set1f("u_slopeThreshold", vis.slopeThreshold);
+		set1f("u_slopeStrength", vis.slopeStrength);
+		set3f("u_slopeColor", vis.slopeColor);
+
+		set1i("u_curvatureEnabled", vis.curvatureEnabled);
+		set1f("u_curvatureScale", vis.curvatureScale);
+		set1f("u_curvatureThreshold", vis.curvatureThreshold);
+		set1f("u_curvatureStrength", vis.curvatureStrength);
+		set3f("u_curvatureColor", vis.curvatureColor);
+
+
 		set1i("u_useHeightColoring", vis.useHeightColoring);
 
 		set1i("u_enableSpecular", vis.enableSpecular);
 		set1f("u_specularStrength", vis.specularStrength);
 		set1f("u_specularPower", vis.specularPower);
-
-		set1i("u_enableFoam", vis.enableFoam);
-		set1f("u_foamThreshold", vis.foamThreshold);
-
-		set1i("u_velocityColoring", vis.velocityColoring);
-
-		set1i("u_enableNoiseOverlay", vis.enableNoiseOverlay);
-		set1f("u_noiseScale", vis.noiseScale);
-		set1f("u_noiseSpeed", vis.noiseSpeed);
 
 		setInt("u_colorTheme", vis.colorTheme);
 	}

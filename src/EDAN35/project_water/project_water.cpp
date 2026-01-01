@@ -259,12 +259,25 @@ void edan35::ProjectWater::run()
 	float ui_specularStrength = 0.15f;
 	float ui_specularPower = 64.0f;
 
-	// Foam (prepared)
-	bool  ui_enableFoam = false;
-	float ui_foamThreshold = 0.5f;
+	// Derivative visualizers
+	bool  ui_velocityEnabled = false;
+	float ui_velocityScale = 1.0f;
+	float ui_velocityThreshold = 0.0f;
+	float ui_velocityStrength = 1.0f;
+	float ui_velocityColor[3] = { 0.6f, 0.95f, 1.0f };
 
-	// Velocity viz (prepared)
-	bool ui_velocityColoring = false;
+	bool  ui_slopeEnabled = false;
+	float ui_slopeScale = 1.0f;
+	float ui_slopeThreshold = 0.5f;
+	float ui_slopeStrength = 1.0f;
+	float ui_slopeColor[3] = { 0.92f, 0.98f, 1.0f };
+
+	bool  ui_curvatureEnabled = false;
+	float ui_curvatureScale = 10.0f;
+	float ui_curvatureThreshold = 0.2f;
+	float ui_curvatureStrength = 1.0f;
+	float ui_curvatureColor[3] = { 1.0f, 0.6f, 0.2f };
+
 
 
 	// Visual params bundle (includes node effect + future effects)
@@ -317,10 +330,24 @@ void edan35::ProjectWater::run()
 	uiState.specularStrength = &ui_specularStrength;
 	uiState.specularPower = &ui_specularPower;
 
-	uiState.enableFoam = &ui_enableFoam;
-	uiState.foamThreshold = &ui_foamThreshold;
+	uiState.velocityEnabled = &ui_velocityEnabled;
+	uiState.velocityScale = &ui_velocityScale;
+	uiState.velocityThreshold = &ui_velocityThreshold;
+	uiState.velocityStrength = &ui_velocityStrength;
+	uiState.velocityColor = ui_velocityColor;
 
-	uiState.velocityColoring = &ui_velocityColoring;
+	uiState.slopeEnabled = &ui_slopeEnabled;
+	uiState.slopeScale = &ui_slopeScale;
+	uiState.slopeThreshold = &ui_slopeThreshold;
+	uiState.slopeStrength = &ui_slopeStrength;
+	uiState.slopeColor = ui_slopeColor;
+
+	uiState.curvatureEnabled = &ui_curvatureEnabled;
+	uiState.curvatureScale = &ui_curvatureScale;
+	uiState.curvatureThreshold = &ui_curvatureThreshold;
+	uiState.curvatureStrength = &ui_curvatureStrength;
+	uiState.curvatureColor = ui_curvatureColor;
+
 
 	uiState.openBoundary = &ui_useOpenBoundary;
 
@@ -568,10 +595,30 @@ void edan35::ProjectWater::run()
 		vis.specularStrength = ui_specularStrength;
 		vis.specularPower = ui_specularPower;
 
-		vis.enableFoam = ui_enableFoam;
-		vis.foamThreshold = ui_foamThreshold;
+		vis.velocityEnabled = ui_velocityEnabled;
+		vis.velocityScale = ui_velocityScale;
+		vis.velocityThreshold = ui_velocityThreshold;
+		vis.velocityStrength = ui_velocityStrength;
+		vis.velocityColor[0] = ui_velocityColor[0];
+		vis.velocityColor[1] = ui_velocityColor[1];
+		vis.velocityColor[2] = ui_velocityColor[2];
 
-		vis.velocityColoring = ui_velocityColoring;
+		vis.slopeEnabled = ui_slopeEnabled;
+		vis.slopeScale = ui_slopeScale;
+		vis.slopeThreshold = ui_slopeThreshold;
+		vis.slopeStrength = ui_slopeStrength;
+		vis.slopeColor[0] = ui_slopeColor[0];
+		vis.slopeColor[1] = ui_slopeColor[1];
+		vis.slopeColor[2] = ui_slopeColor[2];
+
+		vis.curvatureEnabled = ui_curvatureEnabled;
+		vis.curvatureScale = ui_curvatureScale;
+		vis.curvatureThreshold = ui_curvatureThreshold;
+		vis.curvatureStrength = ui_curvatureStrength;
+		vis.curvatureColor[0] = ui_curvatureColor[0];
+		vis.curvatureColor[1] = ui_curvatureColor[1];
+		vis.curvatureColor[2] = ui_curvatureColor[2];
+
 
 		renderer.render(
 			water_shader,

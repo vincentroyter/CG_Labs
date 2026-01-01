@@ -36,12 +36,28 @@ struct WaterUIState
 	float* specularStrength = nullptr;
 	float* specularPower = nullptr;
 
-	// Foam
-	bool* enableFoam = nullptr;
-	float* foamThreshold = nullptr;
 
-	// Velocity viz
-	bool* velocityColoring = nullptr;
+	// Derivative visualizers
+	bool* velocityEnabled = nullptr;
+	float* velocityScale = nullptr;
+	float* velocityThreshold = nullptr;
+	float* velocityStrength = nullptr;
+	float* velocityColor = nullptr; // points to float[3]
+
+	// Slope (first derivative)
+	bool* slopeEnabled = nullptr;
+	float* slopeScale = nullptr;
+	float* slopeThreshold = nullptr;
+	float* slopeStrength = nullptr;
+	float* slopeColor = nullptr; // points to float[3]
+
+	// Curvature (second derivative)
+	bool* curvatureEnabled = nullptr;
+	float* curvatureScale = nullptr;
+	float* curvatureThreshold = nullptr;
+	float* curvatureStrength = nullptr;
+	float* curvatureColor = nullptr; // points to float[3]
+
 
 
 
