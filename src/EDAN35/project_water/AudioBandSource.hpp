@@ -38,10 +38,10 @@ struct AudioBandSource
 	float radiusCells = 12.0f;
 
 	// Signed strength (push/pull). Allow negative.
-	float gain = 10.0f;
+	float gain = 1.0f;
 
 	// Envelope gate
-	float threshold = 0.0f;
+	float threshold = 0.15f;
 
 	// Envelope smoothing (1/s)
 	float attack = 15.0f;
@@ -59,7 +59,7 @@ struct AudioBandSource
 	float agcRunning = 1e-4f;  // running mean power
 
 	// --- Onset / transient impulses ("it dances") ---
-	float impulseGain = 20.0f; // signed: +push, -pull
+	float impulseGain = 1.0f; // signed: +push, -pull
 	float onsetThreshold = 0.15f; // threshold on flux (after AGC)
 	float impulseCooldownSec = 0.08f; // min time between triggers
 	float fluxSmoothRate = 35.0f; // (1/s) smoothing on flux
@@ -74,7 +74,7 @@ struct AudioBandSource
 	float energySmoothed = 0.0f; // envelope
 
 	// Line-only
-	float length01 = 0.5f; // 0..1
+	float length01 = 1.0f; // 0..1
 	float angleRad = 0.0f; // radians
 
 	// Envelope path state

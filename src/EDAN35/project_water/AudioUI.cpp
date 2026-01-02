@@ -76,15 +76,19 @@ void AudioUI::drawSpectrumWindow(AudioUIState& s)
 		return;
 	}
 
+	if (s.spectrumSmooth) ImGui::SliderFloat("Smooth", s.spectrumSmooth, 0.0f, 0.95f, "%.2f");
+	if (s.spectrumMaxHz)  ImGui::SliderFloat("Max Hz", s.spectrumMaxHz, 1000.0f, 20000.0f, "%.0f");
+
 	bool freeze = (s.freezeSpectrum && *s.freezeSpectrum);
+
 	float smooth = (s.spectrumSmooth ? *s.spectrumSmooth : 0.0f);
 	smooth = std::clamp(smooth, 0.0f, 0.99f);
+	if (s.spectrumSmooth) *s.spectrumSmooth = smooth;
 
 	float maxHz = (s.spectrumMaxHz ? *s.spectrumMaxHz : 20000.0f);
 	maxHz = std::clamp(maxHz, 1000.0f, 20000.0f);
+	if (s.spectrumMaxHz) *s.spectrumMaxHz = maxHz;
 
-	if (s.spectrumSmooth) ImGui::SliderFloat("Smooth", s.spectrumSmooth, 0.0f, 0.95f, "%.2f");
-	if (s.spectrumMaxHz) ImGui::SliderFloat("Max Hz", s.spectrumMaxHz, 1000.0f, 20000.0f, "%.0f");
 
 	const float nyq = 0.5f * float(sr);
 	const int N = (int)spec.size(); // fftSize/2
@@ -125,7 +129,7 @@ void AudioUI::drawSpectrumWindow(AudioUIState& s)
 		if (!std::isfinite(v) || v < 0.0f) v = 0.0f;
 		v = std::max(v, 1e-12f);
 
-		float db = 20.0f * std::log10(v / peak); // 0 at peak
+		float db = 10.0f * std::log10(v / peak);
 		db = std::clamp(db, dbMin, 0.0f);
 
 		float y = (db - dbMin) / (-dbMin);
@@ -345,6 +349,8 @@ void AudioUI::draw(AudioUIState& s)
 			int t = (int)b.type;
 			ImGui::Combo("Type", &t, types, IM_ARRAYSIZE(types));
 			b.type = (AudioBandType)t;
+			int gain_factor = (b.type == AudioBandType::Line) ? 2 : 1;
+
 
 			// ---- Drive mode ----
 			const char* modes[] = { "Envelope", "Impulse", "Hybrid" };
@@ -363,7 +369,7 @@ void AudioUI::draw(AudioUIState& s)
 			SliderFloatWithInput("fHigh (Hz)", &b.fHighHz, 0.0f, 20000.0f, "%.1f");
 			if (b.fHighHz < b.fLowHz) std::swap(b.fLowHz, b.fHighHz);
 
-			SliderFloatWithInput("Radius/Width (cells)", &b.radiusCells, 1.0f, 80.0f, "%.1f");
+			SliderFloatWithInput("Radius/Width (cells)", &b.radiusCells, 1.0f, 30.0f, "%.1f");
 			SliderFloatWithInput("Center U", &b.pos01.x, 0.0f, 1.0f, "%.3f");
 			SliderFloatWithInput("Center V", &b.pos01.y, 0.0f, 1.0f, "%.3f");
 
@@ -372,7 +378,7 @@ void AudioUI::draw(AudioUIState& s)
 				ImGui::Separator();
 				ImGui::TextUnformatted("Envelope (slow / continuous)");
 
-				SliderFloatWithInput("Gain (envelope)", &b.gain, -50.0f, 50.0f, "%.2f");
+				SliderFloatWithInput("Gain (envelope)", &b.gain, -2.0f * gain_factor, 2.0f * gain_factor, "%.2f");
 				SliderFloatWithInput("Threshold (env)", &b.threshold, 0.0f, 2.0f, "%.3f");
 				SliderFloatWithInput("Attack (1/s)", &b.attack, 0.1f, 60.0f, "%.2f");
 				SliderFloatWithInput("Release (1/s)", &b.release, 0.1f, 60.0f, "%.2f");
@@ -383,7 +389,7 @@ void AudioUI::draw(AudioUIState& s)
 				ImGui::Separator();
 				ImGui::TextUnformatted("Impulse / onsets (transients)");
 
-				SliderFloatWithInput("Impulse gain", &b.impulseGain, -80.0f, 80.0f, "%.2f");
+				SliderFloatWithInput("Impulse gain", &b.impulseGain, -4.0f * gain_factor, 4.0f * gain_factor, "%.2f");
 				SliderFloatWithInput("Onset threshold", &b.onsetThreshold, 0.0f, 5.0f, "%.3f");
 				SliderFloatWithInput("Cooldown (s)", &b.impulseCooldownSec, 0.0f, 0.5f, "%.3f");
 				SliderFloatWithInput("Flux smooth (1/s)", &b.fluxSmoothRate, 0.0f, 80.0f, "%.1f");
@@ -406,7 +412,7 @@ void AudioUI::draw(AudioUIState& s)
 				ImGui::TextUnformatted("Line geometry");
 
 				SliderFloatWithInput("Length", &b.length01, 0.05f, 1.0f, "%.2f");
-				ImGui::SliderAngle("Angle", &b.angleRad, -180.0f, 180.0f);
+				ImGui::SliderAngle("Angle", &b.angleRad, -90.0f, 90.0f);
 			}
 
 			// ---- Debug (actionable) ----

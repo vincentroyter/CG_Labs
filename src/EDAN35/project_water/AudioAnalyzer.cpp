@@ -143,8 +143,12 @@ void AudioAnalyzer::computeMagnitude()
 
 void AudioAnalyzer::reset()
 {
-	std::fill(m_spectrum.begin(), m_spectrum.end(), 0.0f);
+	std::fill(m_mag.begin(), m_mag.end(), 0.0f);
+	m_read.store(m_write.load(std::memory_order_relaxed), std::memory_order_relaxed);
+	m_lastSampleRate = 0;
 }
+
+
 
 
 void AudioAnalyzer::update(float /*dt*/, uint32_t sampleRate)

@@ -109,7 +109,7 @@ void WaterUI::drawMain(WaterUIState& s, int currentNsim, int currentNr, float fp
 		SliderFloatWithInput("Wave speed c", s.waveSpeed, 0.2f, 3.0f, "%.2f");
 		SliderFloatWithInput("Damping gamma (1/s)", s.velDamp, 0.0f, 6.0f, "%.2f");
 		SliderFloatWithInput("Clamp maxSlope", s.maxSlope, 0.05f, 3.5f, "%.2f");
-		SliderFloatWithInput("Viscosity nu", s.viscosity, 0.0f, 0.05f, "%.4f");
+		SliderFloatWithInput("Viscosity nu", s.viscosity, 0.0f, 0.5f, "%.4f");
 		ImGui::Checkbox("Lock water level", s.setLockWaterLevel);
 		ImGui::Checkbox("Use open boundaries", s.openBoundary);
 

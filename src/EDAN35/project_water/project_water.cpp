@@ -33,6 +33,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <locale>
+#include <iomanip>
+
 
 static constexpr float PI = 3.14159265358979323846f;
 
@@ -65,14 +68,24 @@ static inline int parseInt(const std::string& s, int def = 0)
 static inline float parseFloat(const std::string& s, float def = 0.0f)
 {
 	if (s.empty()) return def;
-	return std::stof(s);
+
+	std::string t = s;
+	for (char& c : t) if (c == ',') c = '.';
+
+	try { return std::stof(t); }
+	catch (...) { return def; }
 }
+
+
 
 static std::unordered_map<std::string, std::string> loadPresetMap(const char* path)
 {
 	std::unordered_map<std::string, std::string> m;
 	std::ifstream f(path);
 	if (!f) return m;
+
+	// IMPORTANT: force '.' parsing behavior
+	f.imbue(std::locale::classic());
 
 	std::string line;
 	while (std::getline(f, line)) {
@@ -89,6 +102,7 @@ static std::unordered_map<std::string, std::string> loadPresetMap(const char* pa
 	}
 	return m;
 }
+
 
 static inline std::string getStr(const std::unordered_map<std::string, std::string>& m, const char* k, const char* def = "")
 {
@@ -442,6 +456,10 @@ void edan35::ProjectWater::run()
 	bool shader_reload_failed = false;
 
 	float simTime = 0.0f;
+	std::string pendingPresetPath;
+	bool pendingPresetApply = false;
+
+
 
 	// ============================================================
 	// Presets (Save/Load)
@@ -450,6 +468,10 @@ void edan35::ProjectWater::run()
 	{
 		std::ofstream os(path);
 		if (!os) return;
+
+		// IMPORTANT: make floats stable across locales (always '.'), and keep precision
+		os.imbue(std::locale::classic());
+		os << std::setprecision(9) << std::fixed;
 
 		os << "# WaterSim preset\n";
 
@@ -588,6 +610,7 @@ void edan35::ProjectWater::run()
 	{
 		auto m = loadPresetMap(path);
 		if (m.empty()) return;
+		printf("Preset load: path=%s  keys=%zu\n", path, m.size());
 
 		// Windows
 		show_driver_window = getBool(m, "ui.showDriverWindow", show_driver_window);
@@ -747,8 +770,17 @@ void edan35::ProjectWater::run()
 			audioBands.push_back(b);
 		}
 
-		selectedDriver = drivers.empty() ? -1 : std::clamp(selectedDriver, -1, (int)drivers.size() - 1);
-		selectedAudioBand = audioBands.empty() ? -1 : std::clamp(selectedAudioBand, -1, (int)audioBands.size() - 1);
+		// Clamp selection to valid range; if non-empty and selection is invalid, pick first
+		if (drivers.empty()) selectedDriver = -1;
+		else selectedDriver = (selectedDriver < 0 || selectedDriver >= (int)drivers.size()) ? 0 : selectedDriver;
+
+		if (audioBands.empty()) selectedAudioBand = -1;
+		else selectedAudioBand = (selectedAudioBand < 0 || selectedAudioBand >= (int)audioBands.size()) ? 0 : selectedAudioBand;
+
+		// Update counters so "Add" creates unique names
+		driverCounter = std::max(driverCounter, (int)drivers.size() + 1);
+		audioBandCounter = std::max(audioBandCounter, (int)audioBands.size() + 1);
+
 	};
 
 	// ============================================================
@@ -820,12 +852,20 @@ void edan35::ProjectWater::run()
 
 	uiState.loadPreset = [&]() {
 		const char* path = tinyfd_openFileDialog("Load preset", "", 0, nullptr, nullptr, 0);
-		if (path) loadPreset(path);
+		if (!path) return;
+
+		pendingPresetPath = path;      // IMPORTANT: copy it
+		pendingPresetApply = true;
 		};
 
 
+
+
+
+
 	audioState.sampleRate = &ui_audioSampleRate;
-	audioState.spectrum = &audioAnalyzer.spectrum();
+	audioState.spectrum = audioAnalyzer.spectrumPtr();
+
 
 	audioState.enabled = &ui_audioEnabled;
 	audioState.volume = &ui_audioVolume;
@@ -935,7 +975,8 @@ void edan35::ProjectWater::run()
 		bool blockCameraLook = false;
 		{
 			auto lmb = inputHandler.GetMouseState(GLFW_MOUSE_BUTTON_LEFT);
-			if (!io.WantCaptureMouse && (lmb & PRESSED)) {
+			if (!io.WantCaptureMouse && (lmb & (PRESSED | JUST_PRESSED)))
+			{
 				int fbw, fbh;
 				glfwGetFramebufferSize(window, &fbw, &fbh);
 
@@ -978,6 +1019,18 @@ void edan35::ProjectWater::run()
 		glViewport(0, 0, framebuffer_width, framebuffer_height);
 
 		mWindowManager.NewImGuiFrame();
+
+		if (pendingPresetApply) {
+			loadPreset(pendingPresetPath.c_str());  // reuse your existing function
+			pendingPresetApply = false;
+
+			// optional: helps avoid UI “snap back”
+			ImGui::SetKeyboardFocusHere(-1);
+			ImGui::GetIO().WantCaptureKeyboard = false;
+			ImGui::GetIO().WantCaptureMouse = false;
+		}
+
+
 
 		// Apply global sim params
 		sim.setWaveSpeed(ui_c);
@@ -1203,8 +1256,18 @@ void edan35::ProjectWater::run()
 				// Impulse path (only while playing)
 				const bool doImpulse = (b.mode == AudioDriveMode::Impulse || b.mode == AudioDriveMode::Hybrid);
 				if (doImpulse && (b.cooldownTimer <= 0.0f) && (b.fluxSmoothed > b.onsetThreshold)) {
-					float mag = b.impulseGain * b.fluxSmoothed;
-					mag = 50.0f * std::tanh(mag / 50.0f);
+
+					// Soft-knee onset strength: small threshold crossings become much weaker
+					float xImp = b.fluxSmoothed - b.onsetThreshold;
+					xImp /= std::max(1e-6f, (1.0f - b.onsetThreshold));   // normalize-ish
+					xImp = std::clamp(xImp, 0.0f, 1.0f);
+					xImp = xImp * xImp;                                   // softer response
+
+					float mag = b.impulseGain * xImp;
+
+					// Gentler saturation (was 50)
+					mag = 20.0f * std::tanh(mag / 20.0f);
+
 
 					int r = std::clamp(int(std::round(b.radiusCells)), 1, 80);
 
@@ -1243,9 +1306,14 @@ void edan35::ProjectWater::run()
 				}
 
 				float desired = b.gain * b.energySmoothed;
-				desired = 0.5f * std::tanh(desired / 0.5f);
 
-				float maxDeltaU = 0.25f;
+				// More headroom so gain matters more (was effectively capped at ~0.5)
+				const float maxU = 1.2f;                 // try 0.8 .. 2.0
+				desired = maxU * std::tanh(desired / maxU);
+
+				// Let target move faster (optional but usually needed to "feel" stronger)
+				float maxDeltaU = 0.6f;                  // try 0.3 .. 1.0
+
 				float delta = std::clamp(desired - b.prevTargetU, -maxDeltaU, maxDeltaU);
 				float targetU = b.prevTargetU + delta;
 				b.prevTargetU = targetU;

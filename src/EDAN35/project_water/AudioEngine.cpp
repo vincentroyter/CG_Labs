@@ -86,7 +86,7 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* /*pInpu
 	}
 
 	if (impl->analyzer) {
-		impl->analyzer->pushInterleaved(out, frameCount, ch);
+		impl->analyzer->pushInterleaved(out, (uint32_t)framesRead, ch);
 	}
 }
 

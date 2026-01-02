@@ -1,6 +1,8 @@
 #pragma once
 #include <vector>
 #include <cstddef>
+#include <algorithm>
+#include <cmath>
 
 class WaterHeightfield {
 public:
@@ -34,7 +36,7 @@ public:
 	void  setVelDamp(float g) { m_velDampPerSec = g; }
 
 	float viscosity() const { return m_viscosity; }
-	void  setViscosity(float g) { m_viscosity = g; }
+	void setViscosity(float nu) { m_viscosity = std::clamp(nu, 0.0f, 1.0f); }
 
 	void setHeightDiffusion(float a) { m_heightDiffusion = a; }
 	float heightDiffusion() const { return m_heightDiffusion; }

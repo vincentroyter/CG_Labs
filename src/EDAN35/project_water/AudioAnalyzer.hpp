@@ -21,6 +21,9 @@ public:
 
 	// For UI spectrum display (magnitudes, size = fftSize()/2, covers 0..Nyquist)
 	const std::vector<float>& spectrum() const { return m_mag; }
+	// in AudioAnalyzer.hpp
+	const std::vector<float>* spectrumPtr() const { return &m_mag; }
+
 	int spectrumSize() const { return int(m_mag.size()); }
 
 	// Config
@@ -37,7 +40,6 @@ private:
 	std::atomic<uint32_t> m_write = 0;
 	std::atomic<uint32_t> m_read = 0;
 	uint32_t m_lastSampleRate = 0;
-	std::vector<float> m_spectrum;
 
 
 	// FFT
