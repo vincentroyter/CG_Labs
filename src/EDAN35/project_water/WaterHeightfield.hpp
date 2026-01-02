@@ -33,6 +33,12 @@ public:
 	float velDamp() const { return m_velDampPerSec; }
 	void  setVelDamp(float g) { m_velDampPerSec = g; }
 
+	float viscosity() const { return m_viscosity; }
+	void  setViscosity(float g) { m_viscosity = g; }
+
+	void setHeightDiffusion(float a) { m_heightDiffusion = a; }
+	float heightDiffusion() const { return m_heightDiffusion; }
+
 
 	float maxSlope() const { return m_maxSlope; }
 	void  setMaxSlope(float s) { m_maxSlope = s; }
@@ -47,6 +53,7 @@ public:
 	}
 
 	bool isOpenBoundary() const { return m_openBoundary; }
+
 
 
 void pullPointTargetHeight(int x, int y, float dt, float targetU, float widthCells, float k, float d);
@@ -74,8 +81,12 @@ private:
 	// Wave params
 	float m_c = 1.2f;     // wave speed in world units / s
 	float m_velDampPerSec = 1.0f; // damping rate gamma [1/s]  (tune 0..10)
-	float m_maxSlope = 0.6f;     // clamp strength (height per meter-ish)
+	float m_maxSlope = 1.5f;     // clamp strength (height per meter-ish)
 	bool m_openBoundary = false;
+	float m_viscosity = 0.0f;
+	float m_heightDiffusion = 0.0f; // 0..0.02 nice
+
+
 
 	float m_vMax = 6.0f; // hard clamp on velocity (tune 2..10)
 
@@ -85,6 +96,7 @@ private:
 	std::vector<float> m_u;      // height
 	std::vector<float> m_uNew;   // height buffer for next step (reused, avoids allocations)
 	std::vector<float> m_v;      // vertical velocity
+	std::vector<float> m_vNew;
 	std::vector<float> m_packedHV; // interleaved [h0,v0,h1,v1,...]
 
 

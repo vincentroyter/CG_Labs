@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
+
 // 2D curvature / Laplacian
 // (u[i+1,j] + u[i-1,j] + u[i,j+1] + u[i,j-1] - 4u[i,j]) / h^2
 float WaterHeightfield::laplacianU(int x, int y) const
@@ -48,6 +49,7 @@ WaterHeightfield::WaterHeightfield(int n, float size)
 	, m_u(std::size_t(n)* std::size_t(n), 0.0f)
 	, m_uNew(std::size_t(n)* std::size_t(n), 0.0f)
 	, m_v(std::size_t(n)* std::size_t(n), 0.0f)
+	, m_vNew(std::size_t(n)* std::size_t(n), 0.0f)
 	, m_packedHV(std::size_t(n)* std::size_t(n) * 2, 0.0f)
 	, m_gTop(n, 0.0f)
 	, m_gBottom(n, 0.0f)
@@ -55,6 +57,7 @@ WaterHeightfield::WaterHeightfield(int n, float size)
 	, m_gRight(n, 0.0f)
 {
 }
+
 
 
 
@@ -127,36 +130,110 @@ void WaterHeightfield::step(float dt)
 		}
 	}
 
-	// --- 3) Commit update (u = unew) -----------------------------------
-	m_u.swap(m_uNew);
+	// Viscosity: diffuse velocity to kill cell-to-cell shimmer.
+	// nu is in "grid units". Small values like 0..0.05 are useful.
+	if (m_viscosity > 0.0f) {
+		const float nu = m_viscosity;
+		const float invH2 = 1.0f / (h2);
 
+		std::copy(m_v.begin(), m_v.end(), m_vNew.begin());
 
-	if (m_maxSlope > 0.0f) {
-		const float maxDu = m_maxSlope * m_dx; // slope * distance -> max height diff per edge
 		for (int y = 1; y < m_n - 1; ++y) {
 			for (int x = 1; x < m_n - 1; ++x) {
 				const std::size_t i = idx(x, y);
-				float u = m_u[i];
 
-				// clamp relative to neighbor values (simple limiter)
+				float vC = m_v[i];
+				float lapV =
+					(m_v[idx(x - 1, y)] + m_v[idx(x + 1, y)] +
+						m_v[idx(x, y - 1)] + m_v[idx(x, y + 1)] -
+						4.0f * vC);
+
+				m_vNew[i] = vC + (nu * lapV * dt * invH2);
+			}
+		}
+
+		m_v.swap(m_vNew);
+	}
+
+
+
+
+	// --- 3) Commit update (u = unew) -----------------------------------
+	m_u.swap(m_uNew);
+
+	if (m_heightDiffusion > 0.0f) {
+		const float a = m_heightDiffusion;
+		const float invH2 = 1.0f / (h2);
+
+		std::copy(m_u.begin(), m_u.end(), m_uNew.begin());
+
+		for (int y = 1; y < m_n - 1; ++y) {
+			for (int x = 1; x < m_n - 1; ++x) {
+				const std::size_t i = idx(x, y);
+				float uC = m_u[i];
+				float lapU =
+					(m_u[idx(x - 1, y)] + m_u[idx(x + 1, y)] +
+						m_u[idx(x, y - 1)] + m_u[idx(x, y + 1)] -
+						4.0f * uC);
+
+				m_uNew[i] = uC + (a * lapU * dt * invH2);
+			}
+		}
+
+		m_u.swap(m_uNew);
+	}
+
+
+
+	// Symmetric "slope limiter": add local diffusion when gradients get too steep.
+	// This avoids the axis-aligned clamp artifacts that can cause corner avalanches.
+	if (m_maxSlope > 0.0f) {
+		const float maxDu = m_maxSlope * m_dx; // allowed height change per cell edge
+		const float maxDu2 = maxDu * maxDu;
+
+		// Make a temp copy of u to write into (reuse m_uNew buffer)
+		std::copy(m_u.begin(), m_u.end(), m_uNew.begin());
+
+		// Strength of extra diffusion when over limit (tune range in UI if needed)
+		const float kappa = 0.35f; // 0..1, higher = stronger limiting
+
+		for (int y = 1; y < m_n - 1; ++y) {
+			for (int x = 1; x < m_n - 1; ++x) {
+				const std::size_t i = idx(x, y);
+
+				float uC = m_u[i];
 				float uL = m_u[idx(x - 1, y)];
 				float uR = m_u[idx(x + 1, y)];
 				float uD = m_u[idx(x, y - 1)];
 				float uU = m_u[idx(x, y + 1)];
 
-				u = std::min(u, uL + maxDu);
-				u = std::max(u, uL - maxDu);
-				u = std::min(u, uR + maxDu);
-				u = std::max(u, uR - maxDu);
-				u = std::min(u, uD + maxDu);
-				u = std::max(u, uD - maxDu);
-				u = std::min(u, uU + maxDu);
-				u = std::max(u, uU - maxDu);
+				// Gradient magnitude squared (symmetric)
+				float dxu = 0.5f * (uR - uL);
+				float dyu = 0.5f * (uU - uD);
+				float g2 = dxu * dxu + dyu * dyu;
 
-				m_u[i] = u;
+				// If too steep, apply extra Laplacian smoothing locally
+				if (g2 > maxDu2) {
+					float lapU = (uL + uR + uD + uU - 4.0f * uC);
+					// Amount grows smoothly with how much we exceed the limit
+					float excess = (std::sqrt(g2) - maxDu) / (maxDu + 1e-6f);
+					excess = std::clamp(excess, 0.0f, 1.0f);
+
+					m_uNew[i] = uC + (kappa * excess) * lapU;
+
+					// Also damp velocity locally so we don't keep "pushing" a crest we just limited.
+					// This removes sharp kinks when the wave falls back.
+					float velDampLocal = 1.0f - 0.5f * (kappa * excess); // 0.5 is a good start
+					velDampLocal = std::clamp(velDampLocal, 0.2f, 1.0f);
+					m_v[i] *= velDampLocal;
+
+				}
 			}
 		}
+
+		m_u.swap(m_uNew);
 	}
+
 
 
 	// --- 4) Boundary conditions ---------------------------------------
@@ -170,47 +247,69 @@ void WaterHeightfield::applyBoundaries(float dt)
 {
 	if (m_openBoundary)
 	{
-		// Absorbing / radiating boundary (ghost memory g)
-		// g_new = (c*dt*u_interior + h*g_old) / (h + c*dt)
 		const float h = m_dx;
-		const float a = m_c * dt;          // c*dt
+		const float a = m_c * dt;
 		const float denom = h + a;
-
 		if (denom <= 0.0f) return;
 
-		// TOP (y=0) uses interior y=1
-		for (int x = 0; x < m_n; ++x) {
+		// TOP (y=0) uses interior y=1 (excluding corners)
+		for (int x = 1; x < m_n - 1; ++x) {
 			float u_in = m_u[idx(x, 1)];
 			float gnew = (a * u_in + h * m_gTop[x]) / denom;
 			m_gTop[x] = gnew;
 			m_u[idx(x, 0)] = gnew;
 		}
 
-		// BOTTOM (y=n-1) uses interior y=n-2
-		for (int x = 0; x < m_n; ++x) {
+		// BOTTOM (y=n-1) uses interior y=n-2 (excluding corners)
+		for (int x = 1; x < m_n - 1; ++x) {
 			float u_in = m_u[idx(x, m_n - 2)];
 			float gnew = (a * u_in + h * m_gBottom[x]) / denom;
 			m_gBottom[x] = gnew;
 			m_u[idx(x, m_n - 1)] = gnew;
 		}
 
-		// LEFT (x=0) uses interior x=1
-		for (int y = 0; y < m_n; ++y) {
+		// LEFT (x=0) uses interior x=1 (excluding corners)
+		for (int y = 1; y < m_n - 1; ++y) {
 			float u_in = m_u[idx(1, y)];
 			float gnew = (a * u_in + h * m_gLeft[y]) / denom;
 			m_gLeft[y] = gnew;
 			m_u[idx(0, y)] = gnew;
 		}
 
-		// RIGHT (x=n-1) uses interior x=n-2
-		for (int y = 0; y < m_n; ++y) {
+		// RIGHT (x=n-1) uses interior x=n-2 (excluding corners)
+		for (int y = 1; y < m_n - 1; ++y) {
 			float u_in = m_u[idx(m_n - 2, y)];
 			float gnew = (a * u_in + h * m_gRight[y]) / denom;
 			m_gRight[y] = gnew;
 			m_u[idx(m_n - 1, y)] = gnew;
 		}
 
-		// Optional: keep boundary velocities sane for any debug/visual use
+		// --- Corners: blend the two edge estimates to avoid directional bias ---
+		auto cornerBlend = [&](int x, int y, float& gA, float uA, float& gB, float uB) {
+			float gnewA = (a * uA + h * gA) / denom;
+			float gnewB = (a * uB + h * gB) / denom;
+			float gnew = 0.5f * (gnewA + gnewB);
+			gA = gnew; gB = gnew;
+			m_u[idx(x, y)] = gnew;
+			};
+
+		// (0,0): blend TOP[x=0] and LEFT[y=0]
+		cornerBlend(0, 0, m_gTop[0], m_u[idx(0, 1)],
+			m_gLeft[0], m_u[idx(1, 0)]);
+
+		// (n-1,0): blend TOP[x=n-1] and RIGHT[y=0]
+		cornerBlend(m_n - 1, 0, m_gTop[m_n - 1], m_u[idx(m_n - 1, 1)],
+			m_gRight[0], m_u[idx(m_n - 2, 0)]);
+
+		// (0,n-1): blend BOTTOM[x=0] and LEFT[y=n-1]
+		cornerBlend(0, m_n - 1, m_gBottom[0], m_u[idx(0, m_n - 2)],
+			m_gLeft[m_n - 1], m_u[idx(1, m_n - 1)]);
+
+		// (n-1,n-1): blend BOTTOM[x=n-1] and RIGHT[y=n-1]
+		cornerBlend(m_n - 1, m_n - 1, m_gBottom[m_n - 1], m_u[idx(m_n - 1, m_n - 2)],
+			m_gRight[m_n - 1], m_u[idx(m_n - 2, m_n - 1)]);
+
+		// Keep boundary velocities sane (optional)
 		for (int x = 0; x < m_n; ++x) {
 			m_v[idx(x, 0)] = m_v[idx(x, 1)];
 			m_v[idx(x, m_n - 1)] = m_v[idx(x, m_n - 2)];
@@ -220,6 +319,7 @@ void WaterHeightfield::applyBoundaries(float dt)
 			m_v[idx(m_n - 1, y)] = m_v[idx(m_n - 2, y)];
 		}
 	}
+
 	else
 	{
 		// Closed boundary: reflect height, kill velocity
@@ -247,19 +347,22 @@ void WaterHeightfield::disturb(int x, int y, float magnitude, int radius)
 
 	/*
 	  Apply a localized impulse to the velocity field.
-
-	  We modify velocity v (not height u) so the interaction
-	  behaves like a physical impact: momentum is added and
-	  height responds smoothly over time via u += v*dt.
+	  Gaussian kernel, but with a circular cutoff to avoid square footprint
+	  when radius is large.
 	*/
 
-	// Gaussian kernel: smooth, radially symmetric footprint
-	// Used to distribute the impulse over nearby cells
-	const float sigma = radius * 0.6f;
+	radius = std::max(1, radius);
+
+	// Pick sigma relative to radius; not too large, otherwise weights become uniform
+	const float sigma = std::max(0.5f, radius * 0.45f);
 	const float inv2Sigma2 = 1.0f / (2.0f * sigma * sigma);
+	const float r2Max = float(radius * radius);
 
 	for (int oy = -radius; oy <= radius; ++oy) {
 		for (int ox = -radius; ox <= radius; ++ox) {
+
+			float r2 = float(ox * ox + oy * oy);
+			if (r2 > r2Max) continue;
 
 			int xi = x + ox;
 			int yi = y + oy;
@@ -267,52 +370,55 @@ void WaterHeightfield::disturb(int x, int y, float magnitude, int radius)
 			if (xi < 1 || xi >= m_n - 1 || yi < 1 || yi >= m_n - 1)
 				continue;
 
-			float r2 = float(ox * ox + oy * oy);
 			float w = std::exp(-r2 * inv2Sigma2);
 
-			// Inject momentum into velocity
 			m_v[idx(xi, yi)] += magnitude * w;
 		}
 	}
 }
+
 
 void WaterHeightfield::removeMeanHeight()
 {
 	/*
 	  Remove global height offset (DC component).
 
-	  Repeated impulses + numerical errors can slowly shift the
-	  average water level up or down. This function recenters
-	  the surface so that the mean height stays at zero.
-
-	  This does NOT affect wave shape or propagation, only the
-	  absolute vertical offset of the whole surface.
+	  With open boundaries, the ghost memory (gTop/gBottom/gLeft/gRight)
+	  can drift too. If we only recenter the interior, the edges can appear
+	  to "lift" into a dome/bowl. So we recenter the full grid AND the ghost
+	  memory arrays to keep everything consistent.
 	*/
 
 	double sum = 0.0;
 	int count = 0;
 
-	// Compute mean height over interior cells
-	// (boundaries are constrained and should not participate)
-	for (int y = 1; y < m_n - 1; ++y) {
-		for (int x = 1; x < m_n - 1; ++x) {
+	// Mean over ALL cells (including boundaries)
+	for (int y = 0; y < m_n; ++y) {
+		for (int x = 0; x < m_n; ++x) {
 			sum += m_u[idx(x, y)];
 			++count;
 		}
 	}
-
-	if (count == 0)
-		return;
+	if (count == 0) return;
 
 	const float mean = float(sum / double(count));
 
-	// Subtract mean from all interior cells to lock the water plane in place
-	for (int y = 1; y < m_n - 1; ++y) {
-		for (int x = 1; x < m_n - 1; ++x) {
+	// Subtract mean from ALL cells (including boundaries)
+	for (int y = 0; y < m_n; ++y) {
+		for (int x = 0; x < m_n; ++x) {
 			m_u[idx(x, y)] -= mean;
 		}
 	}
+
+	// Also shift open-boundary ghost memory so boundaries don't reintroduce offset
+	if (m_openBoundary) {
+		for (float& g : m_gTop)    g -= mean;
+		for (float& g : m_gBottom) g -= mean;
+		for (float& g : m_gLeft)   g -= mean;
+		for (float& g : m_gRight)  g -= mean;
+	}
 }
+
 
 static constexpr float PI = 3.14159265359f;
 
@@ -321,10 +427,17 @@ void WaterHeightfield::pullPointTargetHeight(
 {
 	if (x < 1 || x >= m_n - 1 || y < 1 || y >= m_n - 1) return;
 
-	float sigma = std::max(0.5f, widthCells * 0.6f);
-	float inv2Sigma2 = 1.0f / (2.0f * sigma * sigma);
+	widthCells = std::max(0.5f, widthCells);
 
-	int r = int(std::ceil(3.0f * widthCells + 2.0f));
+	// Slightly tighter sigma helps avoid "almost-uniform" weight over a big square
+	const float sigma = std::max(0.5f, widthCells * 0.45f);
+	const float inv2Sigma2 = 1.0f / (2.0f * sigma * sigma);
+
+	// We only need to touch a finite neighborhood; use ~3*sigma
+	const float reach = 3.0f * sigma;
+	const float reach2 = reach * reach;
+
+	int r = int(std::ceil(reach + 1.0f));
 	int xmin = std::clamp(x - r, 1, m_n - 2);
 	int xmax = std::clamp(x + r, 1, m_n - 2);
 	int ymin = std::clamp(y - r, 1, m_n - 2);
@@ -332,9 +445,15 @@ void WaterHeightfield::pullPointTargetHeight(
 
 	for (int yy = ymin; yy <= ymax; ++yy) {
 		for (int xx = xmin; xx <= xmax; ++xx) {
+
 			float dx = float(xx - x);
 			float dy = float(yy - y);
-			float w = std::exp(-(dx * dx + dy * dy) * inv2Sigma2);
+			float r2 = dx * dx + dy * dy;
+
+			// Circular cutoff: prevents square footprint from showing up
+			if (r2 > reach2) continue;
+
+			float w = std::exp(-r2 * inv2Sigma2);
 
 			std::size_t i = idx(xx, yy);
 
@@ -344,6 +463,7 @@ void WaterHeightfield::pullPointTargetHeight(
 		}
 	}
 }
+
 
 void WaterHeightfield::pullSegmentTargetHeight(
 	float cx, float cy,

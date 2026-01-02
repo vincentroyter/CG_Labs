@@ -6,14 +6,27 @@ target_sources(
   PRIVATE
     project_water.hpp
     project_water.cpp
+
     WaterHeightfield.hpp
     WaterHeightfield.cpp
     WaterMesh.hpp
     WaterMesh.cpp
     WaterRenderer.hpp
     WaterRenderer.cpp
+
+    WaterUI.hpp
+    WaterUI.cpp
+
+    AudioBandSource.hpp
+    AudioAnalyzer.hpp
+    AudioAnalyzer.cpp
+    AudioEngine.hpp
+    AudioEngine.cpp
+    AudioUI.hpp
+    AudioUI.cpp
+
     main.cpp
- "WaterUI.cpp")
+ "include/miniaudio.h")
 
 target_link_libraries(EDAN35_Project_Water PRIVATE assignment_setup)
 install(TARGETS EDAN35_Project_Water DESTINATION bin)
