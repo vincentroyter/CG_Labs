@@ -2,21 +2,19 @@
 #include <vector>
 #include <string>
 #include <functional>
+#include <cstdint>
 
-#include "AudioBandSource.hpp"
+#include "WaterSettings.hpp"
 
 struct AudioUIState
 {
-	// Engine state (owned in project_water.cpp)
-	bool* enabled = nullptr;
-	float* volume = nullptr;
+	WaterSettings* settings = nullptr;
 
-	// For showing playback info and seeking
+	// runtime display / playback state (owned by project_water.cpp)
 	float* durationSec = nullptr;
 	float* cursorSec = nullptr;
 	std::function<void(float)> seekSeconds;
 
-	// Load/play controls
 	std::function<void()> onLoadWav;
 	std::function<void()> onPlay;
 	std::function<void()> onPause;
@@ -26,25 +24,9 @@ struct AudioUIState
 	bool* isLoaded = nullptr;
 	bool* isPlaying = nullptr;
 
-	// Spectrum
-	const std::vector<float>* spectrum = nullptr; // analyzer.spectrum()
-	uint32_t* sampleRate = nullptr;               // engine.sampleRate()
-
-	// Band sources
-	std::vector<AudioBandSource>* bands = nullptr;
-	int* selectedBand = nullptr;
-	int* bandCounter = nullptr;
-
-	// Global mapping params for stability
-	float* k_stiff = nullptr;
-	float* d_damp = nullptr;
-
-	bool* showSpectrumWindow = nullptr;
-	bool* freezeSpectrum = nullptr;
-	float* spectrumSmooth = nullptr; // 0..1
-	float* spectrumMaxHz = nullptr;  // default 20000
-
-
+	// Spectrum data (runtime)
+	const std::vector<float>* spectrum = nullptr;
+	uint32_t* sampleRate = nullptr;
 };
 
 class AudioUI
@@ -52,5 +34,4 @@ class AudioUI
 public:
 	void draw(AudioUIState& s);
 	void drawSpectrumWindow(AudioUIState& s);
-
 };

@@ -1,10 +1,16 @@
 #include "AudioUI.hpp"
 #include <imgui.h>
+
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
+// ---------- Helpers ----------
 static bool SliderFloatWithInput(const char* label, float* value, float min, float max, const char* format = "%.2f")
 {
+	if (!value) return false;
+
 	ImGui::PushID(label);
 	ImGui::TextUnformatted(label);
 	ImGui::SameLine();
@@ -25,6 +31,8 @@ static bool SliderFloatWithInput(const char* label, float* value, float min, flo
 
 static bool SliderIntWithInput(const char* label, int* value, int min, int max)
 {
+	if (!value) return false;
+
 	ImGui::PushID(label);
 	ImGui::TextUnformatted(label);
 	ImGui::SameLine();
@@ -43,16 +51,16 @@ static bool SliderIntWithInput(const char* label, int* value, int min, int max)
 	return changed1 || changed2;
 }
 
-#include <cmath>
-#include <vector>
-
-#include <cmath> // std::isfinite, std::log10
-
+// ---------- Spectrum window ----------
 void AudioUI::drawSpectrumWindow(AudioUIState& s)
 {
-	if (!s.showSpectrumWindow || !(*s.showSpectrumWindow)) return;
+	if (!s.settings) return;
+	auto& set = *s.settings;
 
-	if (!ImGui::Begin("Spectrum", s.showSpectrumWindow)) {
+	// Window toggle is persisted in settings now
+	if (!set.win.showSpectrumWindow) return;
+
+	if (!ImGui::Begin("Spectrum", &set.win.showSpectrumWindow)) {
 		ImGui::End();
 		return;
 	}
@@ -68,7 +76,6 @@ void AudioUI::drawSpectrumWindow(AudioUIState& s)
 	}
 
 	const std::vector<float>& spec = *s.spectrum;
-
 	if (spec.empty()) {
 		ImGui::Separator();
 		ImGui::TextDisabled("Spectrum empty (analyzer hasn't produced a frame yet).");
@@ -76,38 +83,26 @@ void AudioUI::drawSpectrumWindow(AudioUIState& s)
 		return;
 	}
 
-	if (s.spectrumSmooth) ImGui::SliderFloat("Smooth", s.spectrumSmooth, 0.0f, 0.95f, "%.2f");
-	if (s.spectrumMaxHz)  ImGui::SliderFloat("Max Hz", s.spectrumMaxHz, 1000.0f, 20000.0f, "%.0f");
+	// Controls (persisted)
+	SliderFloatWithInput("Smooth", &set.audio.spectrumSmooth, 0.0f, 0.95f, "%.2f");
+	SliderFloatWithInput("Max Hz", &set.audio.spectrumMaxHz, 1000.0f, 20000.0f, "%.0f");
+	ImGui::Checkbox("Freeze", &set.audio.freezeSpectrum);
 
-	bool freeze = (s.freezeSpectrum && *s.freezeSpectrum);
+	const bool freeze = set.audio.freezeSpectrum;
 
-	float smooth = (s.spectrumSmooth ? *s.spectrumSmooth : 0.0f);
-	smooth = std::clamp(smooth, 0.0f, 0.99f);
-	if (s.spectrumSmooth) *s.spectrumSmooth = smooth;
+	float smooth = std::clamp(set.audio.spectrumSmooth, 0.0f, 0.99f);
+	set.audio.spectrumSmooth = smooth;
 
-	float maxHz = (s.spectrumMaxHz ? *s.spectrumMaxHz : 20000.0f);
-	maxHz = std::clamp(maxHz, 1000.0f, 20000.0f);
-	if (s.spectrumMaxHz) *s.spectrumMaxHz = maxHz;
-
+	float maxHz = std::clamp(set.audio.spectrumMaxHz, 1000.0f, 20000.0f);
+	set.audio.spectrumMaxHz = maxHz;
 
 	const float nyq = 0.5f * float(sr);
-	const int N = (int)spec.size(); // fftSize/2
+	const int N = (int)spec.size(); // typically fftSize/2
 
 	int binsToShow = (int)std::round((maxHz / nyq) * float(N));
 	binsToShow = std::clamp(binsToShow, 8, N);
 
-
-	// ---- Debug min/max + NaN check in shown range ----
-	float vMin = +1e30f, vMax = -1e30f;
-	int badCount = 0;
-	for (int i = 0; i < binsToShow; ++i) {
-		float v = spec[i];
-		if (!std::isfinite(v)) { badCount++; continue; }
-		vMin = std::min(vMin, v);
-		vMax = std::max(vMax, v);
-	}
-	if (vMin > vMax) { vMin = 0.0f; vMax = 0.0f; }
-
+	// Static buffers persist between frames
 	static std::vector<float> disp;
 	static std::vector<float> dispSm;
 	disp.resize(binsToShow);
@@ -136,15 +131,16 @@ void AudioUI::drawSpectrumWindow(AudioUIState& s)
 		disp[i] = std::clamp(y, 0.0f, 1.0f);
 	}
 
+	// Smooth displayed data unless frozen
 	if (!freeze) {
-		float a = 1.0f - smooth;
+		const float a = 1.0f - smooth;
 		for (int i = 0; i < binsToShow; ++i) {
 			dispSm[i] = dispSm[i] + a * (disp[i] - dispSm[i]);
 		}
 	}
 
-	// ---- Plot as histogram (much more visible than a thin line) ----
-	ImVec2 plotSize(0.0f, 200.0f); // 0 = auto width (avoid -1)
+	// Plot
+	ImVec2 plotSize(0.0f, 200.0f); // 0 = auto width
 	ImGui::PlotHistogram("##spec_hist",
 		dispSm.data(),
 		binsToShow,
@@ -154,7 +150,7 @@ void AudioUI::drawSpectrumWindow(AudioUIState& s)
 		plotSize
 	);
 
-	// Hover tooltip with correct Hz (MUST be right after PlotHistogram!)
+	// Hover tooltip with Hz
 	if (ImGui::IsItemHovered()) {
 		ImVec2 p0 = ImGui::GetItemRectMin();
 		ImVec2 p1 = ImGui::GetItemRectMax();
@@ -174,18 +170,15 @@ void AudioUI::drawSpectrumWindow(AudioUIState& s)
 		float db = (y * (-dbMin)) + dbMin;
 
 		ImGui::BeginTooltip();
-		ImGui::Text("Hz:  %.1f", hz);
-		ImGui::Text("dB:  %.1f", db);
+		ImGui::Text("Hz: %.1f", hz);
+		ImGui::Text("dB: %.1f", db);
 		ImGui::EndTooltip();
 	}
-
-	if (s.freezeSpectrum) ImGui::Checkbox("Freeze", s.freezeSpectrum);
 
 	ImGui::End();
 }
 
-
-
+// ---------- Main Audio window ----------
 void AudioUI::draw(AudioUIState& s)
 {
 	if (!ImGui::Begin("Audio")) {
@@ -193,21 +186,27 @@ void AudioUI::draw(AudioUIState& s)
 		return;
 	}
 
-	// Enable
-	if (s.enabled) {
-		ImGui::Checkbox("Enable audio driving", s.enabled);
+	if (!s.settings) {
+		ImGui::TextColored(ImVec4(1, 0.4f, 0.4f, 1), "Error: AudioUIState.settings is null.");
+		ImGui::End();
+		return;
 	}
+
+	auto& set = *s.settings;
+
+	// Enable (persisted)
+	ImGui::Checkbox("Enable audio driving", &set.audio.enabled);
 
 	// File / playback
 	ImGui::Separator();
-	ImGui::Text("File and playback");
+	ImGui::TextUnformatted("File and playback");
 
 	if (ImGui::Button("Load WAV...")) {
 		if (s.onLoadWav) s.onLoadWav();
 	}
 
-	bool loaded = (s.isLoaded && *s.isLoaded);
-	bool playing = (s.isPlaying && *s.isPlaying);
+	const bool loaded = (s.isLoaded && *s.isLoaded);
+	const bool playing = (s.isPlaying && *s.isPlaying);
 
 	ImGui::SameLine();
 	ImGui::BeginDisabled(!loaded);
@@ -225,11 +224,10 @@ void AudioUI::draw(AudioUIState& s)
 		ImGui::TextDisabled("Loaded: (none)");
 	}
 
-	if (s.volume) {
-		SliderFloatWithInput("Volume", s.volume, 0.0f, 1.0f, "%.2f");
-	}
+	// Volume (persisted)
+	SliderFloatWithInput("Volume", &set.audio.volume, 0.0f, 1.0f, "%.2f");
 
-	// Seek (pause while dragging to avoid artifacts)
+	// Seek (pause while dragging)
 	if (s.durationSec && s.cursorSec) {
 		float dur = *s.durationSec;
 		float cur = *s.cursorSec;
@@ -239,7 +237,6 @@ void AudioUI::draw(AudioUIState& s)
 			static bool wasPlayingBeforeSeek = false;
 
 			bool changed = ImGui::SliderFloat("Seek", &seek, 0.0f, dur, "%.2f s");
-
 			bool active = ImGui::IsItemActive();
 			bool released = ImGui::IsItemDeactivatedAfterEdit();
 
@@ -261,46 +258,46 @@ void AudioUI::draw(AudioUIState& s)
 		}
 	}
 
+	// Windows (persisted)
 	ImGui::Separator();
-	ImGui::Text("Windows");
-	if (s.showSpectrumWindow) ImGui::Checkbox("Spectrum window", s.showSpectrumWindow);
+	ImGui::TextUnformatted("Windows");
+	ImGui::Checkbox("Spectrum window", &set.win.showSpectrumWindow);
 
-
-	// Global stability params for audio driving
+	// Physics knobs (persisted)
 	ImGui::Separator();
-	ImGui::Text("Audio driver physics");
-	if (s.k_stiff) SliderFloatWithInput("Stiffness k", s.k_stiff, 10.0f, 400.0f, "%.1f");
-	if (s.d_damp)  SliderFloatWithInput("Damping d", s.d_damp, 0.0f, 80.0f, "%.1f");
+	ImGui::TextUnformatted("Audio driver physics");
+	SliderFloatWithInput("Stiffness k", &set.audio.k_stiff, 10.0f, 400.0f, "%.1f");
+	SliderFloatWithInput("Damping d", &set.audio.d_damp, 0.0f, 80.0f, "%.1f");
 
-	// Band sources
+	// Band sources (persisted)
 	ImGui::Separator();
-	ImGui::Text("Band sources");
+	ImGui::TextUnformatted("Band sources");
+
+	auto& bands = set.audio.bands;
+	int& selBand = set.audio.selectedBand;
+	int& counter = set.audio.bandCounter;
+
+	if (bands.empty()) selBand = -1;
+	else selBand = std::clamp(selBand, -1, (int)bands.size() - 1);
 
 	if (ImGui::Button("Add band")) {
-		if (s.bands && s.bandCounter && s.selectedBand) {
-			AudioBandSource b;
-			b.name = "Band " + std::to_string((*s.bandCounter)++);
-			b.fLowHz = 0.0f;
-			b.fHighHz = 200.0f;
-			b.pos01 = { 0.5f, 0.5f };
-			s.bands->push_back(b);
-			*s.selectedBand = int(s.bands->size()) - 1;
-		}
+		AudioBandSource b;
+		b.name = "Band " + std::to_string(counter++);
+		b.fLowHz = 0.0f;
+		b.fHighHz = 200.0f;
+		b.pos01 = { 0.5f, 0.5f };
+		bands.push_back(b);
+		selBand = (int)bands.size() - 1;
 	}
 
 	ImGui::SameLine();
-	bool canDup = (s.bands && s.selectedBand && *s.selectedBand >= 0 &&
-		*s.selectedBand < (int)s.bands->size());
-	if (!canDup) ImGui::BeginDisabled();
+	const bool canDup = (selBand >= 0 && selBand < (int)bands.size());
+	ImGui::BeginDisabled(!canDup);
+	if (ImGui::Button("Duplicate")) {
+		AudioBandSource copy = bands[selBand];
+		copy.name += " copy";
 
-	if (ImGui::Button("Duplicate") && canDup) {
-		auto& bands = *s.bands;
-		int idx = *s.selectedBand;
-
-		AudioBandSource copy = bands[idx];          // copy ALL settings
-		copy.name = copy.name + " copy";
-
-		// Reset runtime-only state so it behaves cleanly
+		// reset runtime-only accumulators if they exist in your struct
 		copy.energyRaw = 0.0f;
 		copy.energyNorm = 0.0f;
 		copy.energySmoothed = 0.0f;
@@ -312,160 +309,127 @@ void AudioUI::draw(AudioUIState& s)
 		copy.agcRunning = 0.0f;
 
 		bands.push_back(copy);
-		*s.selectedBand = (int)bands.size() - 1;
-
-		if (s.bandCounter) (*s.bandCounter)++;
+		selBand = (int)bands.size() - 1;
+		counter++;
 	}
-
-	if (!canDup) ImGui::EndDisabled();
+	ImGui::EndDisabled();
 
 	ImGui::Separator();
 
-	if (s.bands && s.selectedBand) {
-		if (ImGui::BeginListBox("##bands", ImVec2(-FLT_MIN, 140.0f))) {
-			for (int i = 0; i < (int)s.bands->size(); ++i) {
-				const auto& b = (*s.bands)[i];
-				std::string label = b.name;
-				if (!b.enabled) label += " (off)";
-				if (ImGui::Selectable(label.c_str(), *s.selectedBand == i)) {
-					*s.selectedBand = i;
-				}
-			}
-			ImGui::EndListBox();
-		}
-
-		// --- Selected band UI (copy-paste replacement) ---
-		// NOTE: This version avoids ImGui::SeparatorText() (older ImGui compatibility).
-
-		if (*s.selectedBand >= 0 && *s.selectedBand < (int)s.bands->size()) {
-			auto& b = (*s.bands)[*s.selectedBand];
-
-			ImGui::Separator();
-			ImGui::Text("Selected: %s", b.name.c_str());
-			ImGui::Checkbox("Enabled", &b.enabled);
-
-			// ---- Type ----
-			const char* types[] = { "Point", "Line" };
-			int t = (int)b.type;
-			ImGui::Combo("Type", &t, types, IM_ARRAYSIZE(types));
-			b.type = (AudioBandType)t;
-			int gain_factor = (b.type == AudioBandType::Line) ? 2 : 1;
-
-
-			// ---- Drive mode ----
-			const char* modes[] = { "Envelope", "Impulse", "Hybrid" };
-			int m = (int)b.mode;
-			ImGui::Combo("Drive", &m, modes, IM_ARRAYSIZE(modes));
-			b.mode = (AudioDriveMode)m;
-
-			const bool showEnv = (b.mode == AudioDriveMode::Envelope || b.mode == AudioDriveMode::Hybrid);
-			const bool showImp = (b.mode == AudioDriveMode::Impulse || b.mode == AudioDriveMode::Hybrid);
-
-			// ---- Band ----
-			ImGui::Separator();
-			ImGui::TextUnformatted("Band");
-
-			SliderFloatWithInput("fLow (Hz)", &b.fLowHz, 0.0f, 20000.0f, "%.1f");
-			SliderFloatWithInput("fHigh (Hz)", &b.fHighHz, 0.0f, 20000.0f, "%.1f");
-			if (b.fHighHz < b.fLowHz) std::swap(b.fLowHz, b.fHighHz);
-
-			SliderFloatWithInput("Radius/Width (cells)", &b.radiusCells, 1.0f, 30.0f, "%.1f");
-			SliderFloatWithInput("Center U", &b.pos01.x, 0.0f, 1.0f, "%.3f");
-			SliderFloatWithInput("Center V", &b.pos01.y, 0.0f, 1.0f, "%.3f");
-
-			// ---- Envelope controls ----
-			if (showEnv) {
-				ImGui::Separator();
-				ImGui::TextUnformatted("Envelope (slow / continuous)");
-
-				SliderFloatWithInput("Gain (envelope)", &b.gain, -2.0f * gain_factor, 2.0f * gain_factor, "%.2f");
-				SliderFloatWithInput("Threshold (env)", &b.threshold, 0.0f, 2.0f, "%.3f");
-				SliderFloatWithInput("Attack (1/s)", &b.attack, 0.1f, 60.0f, "%.2f");
-				SliderFloatWithInput("Release (1/s)", &b.release, 0.1f, 60.0f, "%.2f");
-			}
-
-			// ---- Impulse controls ----
-			if (showImp) {
-				ImGui::Separator();
-				ImGui::TextUnformatted("Impulse / onsets (transients)");
-
-				SliderFloatWithInput("Impulse gain", &b.impulseGain, -4.0f * gain_factor, 4.0f * gain_factor, "%.2f");
-				SliderFloatWithInput("Onset threshold", &b.onsetThreshold, 0.0f, 5.0f, "%.3f");
-				SliderFloatWithInput("Cooldown (s)", &b.impulseCooldownSec, 0.0f, 0.5f, "%.3f");
-				SliderFloatWithInput("Flux smooth (1/s)", &b.fluxSmoothRate, 0.0f, 80.0f, "%.1f");
-				SliderFloatWithInput("Onset HP time (s)", &b.onsetHPTimeSec, 0.02f, 1.5f, "%.3f");
-			}
-
-
-			// ---- AGC ----
-			ImGui::Separator();
-			ImGui::TextUnformatted("AGC (auto normalization)");
-
-			ImGui::Checkbox("Enable AGC", &b.agcEnabled);
-			if (b.agcEnabled) {
-				SliderFloatWithInput("AGC time (s)", &b.agcTimeSec, 0.1f, 6.0f, "%.2f");
-			}
-
-			// ---- Line settings ----
-			if (b.type == AudioBandType::Line) {
-				ImGui::Separator();
-				ImGui::TextUnformatted("Line geometry");
-
-				SliderFloatWithInput("Length", &b.length01, 0.05f, 1.0f, "%.2f");
-				ImGui::SliderAngle("Angle", &b.angleRad, -90.0f, 90.0f);
-			}
-
-			// ---- Debug (actionable) ----
-			ImGui::Separator();
-			ImGui::TextUnformatted("Debug");
-
-			ImGui::Text("Energy raw:  %.6f", b.energyRaw);
-			ImGui::Text("AGC running: %.6f", b.agcRunning);
-			ImGui::Text("Energy norm: %.4f", b.energyNorm);
-
-			if (showEnv) {
-				ImGui::Text("Env (smoothed): %.4f  (thr=%.3f)", b.energySmoothed, b.threshold);
-
-				float envMeter = 0.0f;
-				if (b.threshold > 1e-6f) envMeter = b.energySmoothed / (b.threshold * 2.0f);
-				envMeter = std::clamp(envMeter, 0.0f, 1.0f);
-				ImGui::ProgressBar(envMeter, ImVec2(-1, 0), "Env level (rel)");
-			}
-
-			if (showImp) {
-				ImGui::Text("Flux smoothed: %.4f  (thr=%.3f)", b.fluxSmoothed, b.onsetThreshold);
-				ImGui::Text("Cooldown: %.3f / %.3f", b.cooldownTimer, b.impulseCooldownSec);
-				ImGui::Text("Baseline (slow): %.4f", b.energySlow);
-
-
-				const bool ready = (b.cooldownTimer <= 0.0f);
-				const bool above = (b.fluxSmoothed > b.onsetThreshold);
-
-				ImGui::Text("Trigger: %s",
-					(ready && above) ? "READY (will fire)"
-					: (above ? "Blocked (cooldown)" : "Not above threshold"));
-
-				float fluxMeter = 0.0f;
-				if (b.onsetThreshold > 1e-6f) fluxMeter = b.fluxSmoothed / (b.onsetThreshold * 2.0f);
-				fluxMeter = std::clamp(fluxMeter, 0.0f, 1.0f);
-				ImGui::ProgressBar(fluxMeter, ImVec2(-1, 0), "Flux level (rel)");
-			}
-
-			ImGui::Separator();
-			if (ImGui::Button("Delete band")) {
-				s.bands->erase(s.bands->begin() + *s.selectedBand);
-				if (s.bands->empty())
-					*s.selectedBand = -1;
-				else
-					*s.selectedBand = std::clamp(*s.selectedBand, 0, (int)s.bands->size() - 1);
+	// List
+	if (ImGui::BeginListBox("##bands", ImVec2(-FLT_MIN, 140.0f))) {
+		for (int i = 0; i < (int)bands.size(); ++i) {
+			std::string label = bands[i].name;
+			if (!bands[i].enabled) label += " (off)";
+			if (ImGui::Selectable(label.c_str(), selBand == i)) {
+				selBand = i;
 			}
 		}
-		else {
-			ImGui::TextDisabled("No band selected.");
+		ImGui::EndListBox();
+	}
+
+	// Selected band editor
+	if (selBand >= 0 && selBand < (int)bands.size()) {
+		auto& b = bands[selBand];
+
+		ImGui::Separator();
+		ImGui::Text("Selected: %s", b.name.c_str());
+		ImGui::Checkbox("Enabled", &b.enabled);
+
+		// Type
+		const char* types[] = { "Point", "Line" };
+		int t = (int)b.type;
+		ImGui::Combo("Type", &t, types, IM_ARRAYSIZE(types));
+		b.type = (AudioBandType)t;
+		const int gain_factor = (b.type == AudioBandType::Line) ? 2 : 1;
+
+		// Drive mode
+		const char* modes[] = { "Envelope", "Impulse", "Hybrid" };
+		int m = (int)b.mode;
+		ImGui::Combo("Drive", &m, modes, IM_ARRAYSIZE(modes));
+		b.mode = (AudioDriveMode)m;
+
+		const bool showEnv = (b.mode == AudioDriveMode::Envelope || b.mode == AudioDriveMode::Hybrid);
+		const bool showImp = (b.mode == AudioDriveMode::Impulse || b.mode == AudioDriveMode::Hybrid);
+
+		// Band params
+		ImGui::Separator();
+		ImGui::TextUnformatted("Band");
+
+		SliderFloatWithInput("fLow (Hz)", &b.fLowHz, 0.0f, 20000.0f, "%.1f");
+		SliderFloatWithInput("fHigh (Hz)", &b.fHighHz, 0.0f, 20000.0f, "%.1f");
+		if (b.fHighHz < b.fLowHz) std::swap(b.fLowHz, b.fHighHz);
+
+		SliderFloatWithInput("Radius/Width (cells)", &b.radiusCells, 1.0f, 30.0f, "%.1f");
+		SliderFloatWithInput("Center U", &b.pos01.x, 0.0f, 1.0f, "%.3f");
+		SliderFloatWithInput("Center V", &b.pos01.y, 0.0f, 1.0f, "%.3f");
+
+		// Envelope controls
+		if (showEnv) {
+			ImGui::Separator();
+			ImGui::TextUnformatted("Envelope (slow / continuous)");
+
+			SliderFloatWithInput("Gain (envelope)", &b.gain, -2.0f * gain_factor, 2.0f * gain_factor, "%.2f");
+			SliderFloatWithInput("Threshold (env)", &b.threshold, 0.0f, 2.0f, "%.3f");
+			SliderFloatWithInput("Attack (1/s)", &b.attack, 0.1f, 60.0f, "%.2f");
+			SliderFloatWithInput("Release (1/s)", &b.release, 0.1f, 60.0f, "%.2f");
 		}
 
+		// Impulse controls
+		if (showImp) {
+			ImGui::Separator();
+			ImGui::TextUnformatted("Impulse / onsets (transients)");
+
+			SliderFloatWithInput("Impulse gain", &b.impulseGain, -4.0f * gain_factor, 4.0f * gain_factor, "%.2f");
+			SliderFloatWithInput("Onset threshold", &b.onsetThreshold, 0.0f, 5.0f, "%.3f");
+			SliderFloatWithInput("Cooldown (s)", &b.impulseCooldownSec, 0.0f, 0.5f, "%.3f");
+			SliderFloatWithInput("Flux smooth (1/s)", &b.fluxSmoothRate, 0.0f, 80.0f, "%.1f");
+			SliderFloatWithInput("Onset HP time (s)", &b.onsetHPTimeSec, 0.02f, 1.5f, "%.3f");
+		}
+
+		// AGC
+		ImGui::Separator();
+		ImGui::TextUnformatted("AGC (auto normalization)");
+		ImGui::Checkbox("Enable AGC", &b.agcEnabled);
+		if (b.agcEnabled) {
+			SliderFloatWithInput("AGC time (s)", &b.agcTimeSec, 0.1f, 6.0f, "%.2f");
+		}
+
+		// Line geometry
+		if (b.type == AudioBandType::Line) {
+			ImGui::Separator();
+			ImGui::TextUnformatted("Line geometry");
+			SliderFloatWithInput("Length", &b.length01, 0.05f, 1.0f, "%.2f");
+			ImGui::SliderAngle("Angle", &b.angleRad, -90.0f, 90.0f);
+		}
+
+		// Debug
+		ImGui::Separator();
+		ImGui::TextUnformatted("Debug");
+
+		ImGui::Text("Energy raw:    %.6f", b.energyRaw);
+		ImGui::Text("AGC running:   %.6f", b.agcRunning);
+		ImGui::Text("Energy norm:   %.4f", b.energyNorm);
+
+		if (showEnv) {
+			ImGui::Text("Env(smoothed): %.4f (thr=%.3f)", b.energySmoothed, b.threshold);
+		}
+		if (showImp) {
+			ImGui::Text("Flux(smoothed): %.4f (thr=%.3f)", b.fluxSmoothed, b.onsetThreshold);
+			ImGui::Text("Cooldown: %.3f / %.3f", b.cooldownTimer, b.impulseCooldownSec);
+			ImGui::Text("Baseline(slow): %.4f", b.energySlow);
+		}
+
+		ImGui::Separator();
+		if (ImGui::Button("Delete band")) {
+			bands.erase(bands.begin() + selBand);
+			if (bands.empty()) selBand = -1;
+			else selBand = std::clamp(selBand, 0, (int)bands.size() - 1);
+		}
+	}
+	else {
+		ImGui::TextDisabled("No band selected.");
 	}
 
 	ImGui::End();
 }
-

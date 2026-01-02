@@ -13,6 +13,10 @@ target_sources(
     WaterMesh.cpp
     WaterRenderer.hpp
     WaterRenderer.cpp
+	WaterSettings.hpp
+	PresetIO.hpp
+    PresetIO.cpp
+
 
     WaterUI.hpp
     WaterUI.cpp
@@ -26,7 +30,7 @@ target_sources(
     AudioUI.cpp
 
     main.cpp
- "include/miniaudio.h")
+ "include/miniaudio.h" )
 
 target_link_libraries(EDAN35_Project_Water PRIVATE assignment_setup)
 install(TARGETS EDAN35_Project_Water DESTINATION bin)
