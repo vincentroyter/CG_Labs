@@ -10,7 +10,7 @@ struct AudioUIState
 {
 	WaterSettings* settings = nullptr;
 
-	// runtime display / playback state (owned by project_water.cpp)
+	// runtime display / playback state
 	float* durationSec = nullptr;
 	float* cursorSec = nullptr;
 	std::function<void(float)> seekSeconds;
@@ -24,7 +24,6 @@ struct AudioUIState
 	bool* isLoaded = nullptr;
 	bool* isPlaying = nullptr;
 
-	// Spectrum data (runtime)
 	const std::vector<float>* spectrum = nullptr;
 	uint32_t* sampleRate = nullptr;
 };

@@ -1,22 +1,11 @@
 ﻿#include "WaterMesh.hpp"
 #include <cstddef>
 
-/* Note:
- - This mesh never changes on the CPU
-
- - It is always flat (y = 0)
-
- - The vertex shader later moves the vertices up/down using the height texture
-
- - This mesh controls how often we sample the height texture and only affects the GPU cost
-*/
-
 WaterMesh::WaterMesh(int n_render, float size)
 	: m_n(n_render), m_size(size)
 {
 	m_vtx.resize(std::size_t(m_n) * std::size_t(m_n) * 3u, 0.0f);
 
-	// This gives the plane extents: x,z ∈ [ -size/2 , +size/2 ]
 	const float half = 0.5f * m_size;
 	const float dx = m_size / float(m_n - 1);
 

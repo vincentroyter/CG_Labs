@@ -32,7 +32,6 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* /*pInpu
 
 	const ma_uint32 ch = pDevice->playback.channels;
 
-	// Always output silence unless we successfully decode.
 	std::memset(out, 0, frameCount * ch * sizeof(float));
 
 	if (!impl || !impl->haveDecoder.load() || !impl->playing.load()) {
@@ -46,14 +45,12 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* /*pInpu
 		std::lock_guard<std::mutex> lock(impl->decoderMutex);
 		rr = ma_decoder_read_pcm_frames(&impl->decoder, out, frameCount, &framesRead);
 
-		// If we got nothing, try looping ONCE (EOF) then read again.
 		if (framesRead == 0) {
 			ma_decoder_seek_to_pcm_frame(&impl->decoder, 0);
 			rr = ma_decoder_read_pcm_frames(&impl->decoder, out, frameCount, &framesRead);
 		}
 	}
 
-	// If still nothing, stay silent. This avoids "noise" output.
 	if (framesRead == 0) {
 		static int tickFail = 0;
 		if ((tickFail++ % 200) == 0) {
@@ -63,26 +60,15 @@ static void data_callback(ma_device* pDevice, void* pOutput, const void* /*pInpu
 		return;
 	}
 
-	// Apply volume only to the frames we actually got.
 	const float vol = impl->volume;
 	const ma_uint32 samples = (ma_uint32)framesRead * ch;
 	for (ma_uint32 i = 0; i < samples; ++i) out[i] *= vol;
 
-	// Tail is already zero (because we memset at the top), so partial reads are fine.
-
-	// Optional debug: peak + framesRead
 	float peak = 0.0f;
 	for (ma_uint32 i = 0; i < samples; ++i) {
 		float a = out[i];
 		if (a < 0.0f) a = -a;
 		if (a > peak) peak = a;
-	}
-
-	static int tick2 = 0;
-	if ((tick2++ % 200) == 0) {
-		printf("audio: framesRead=%llu peak=%f rr=%d sr=%u ch=%u\n",
-			(unsigned long long)framesRead, peak, (int)rr,
-			(unsigned)pDevice->sampleRate, (unsigned)ch);
 	}
 
 	if (impl->analyzer) {
@@ -123,11 +109,9 @@ bool AudioEngine::loadWav(const std::string& path)
 			tr = ma_decoder_read_pcm_frames(&m->decoder, testBuf, 128, &testRead);
 			ma_decoder_seek_to_pcm_frame(&m->decoder, 0);
 		}
-		printf("loadWav test: tr=%d testRead=%llu\n", (int)tr, (unsigned long long)testRead);
 	}
 
 
-	// We forced the decoder output to 2ch/48k above.
 	m_sampleRate = (uint32_t)m->decoder.outputSampleRate;
 	m_channels = (uint32_t)m->decoder.outputChannels;
 	m->sampleRate = m_sampleRate;
@@ -141,7 +125,6 @@ bool AudioEngine::loadWav(const std::string& path)
 	devCfg.dataCallback = data_callback;
 	devCfg.pUserData = m;
 
-	// IMPORTANT: you must init the device before starting it
 	if (ma_device_init(nullptr, &devCfg, &m->device) != MA_SUCCESS) {
 		ma_decoder_uninit(&m->decoder);
 		m->haveDecoder.store(false);
@@ -161,7 +144,6 @@ bool AudioEngine::loadWav(const std::string& path)
 	m_path = path;
 	m_loaded.store(true);
 
-	// Start paused by default
 	m_playing.store(false);
 	m->playing.store(false);
 

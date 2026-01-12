@@ -9,23 +9,27 @@ target_sources(
 
     WaterHeightfield.hpp
     WaterHeightfield.cpp
+
     WaterMesh.hpp
     WaterMesh.cpp
+
     WaterRenderer.hpp
     WaterRenderer.cpp
+
 	WaterSettings.hpp
+
 	PresetIO.hpp
     PresetIO.cpp
-
 
     WaterUI.hpp
     WaterUI.cpp
 
-    AudioBandSource.hpp
     AudioAnalyzer.hpp
     AudioAnalyzer.cpp
+
     AudioEngine.hpp
     AudioEngine.cpp
+
     AudioUI.hpp
     AudioUI.cpp
 

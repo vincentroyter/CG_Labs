@@ -6,7 +6,7 @@ static bool isPowerOfTwo(int n) { return n > 0 && (n & (n - 1)) == 0; }
 
 AudioAnalyzer::AudioAnalyzer()
 {
-	m_ring.resize(1 << 18); // 262144 samples ~ 5.4s at 48k
+	m_ring.resize(1 << 18);
 	ensureBuffers();
 }
 
@@ -69,17 +69,13 @@ bool AudioAnalyzer::popWindow()
 		float s = m_ring[(r + uint32_t(i)) & mask];
 		m_time[i] = s * m_window[i];
 	}
-	// Hop size: 1/2 window (overlap 50%)
 	r += uint32_t(m_fftSize / 2);
 	m_read.store(r, std::memory_order_release);
 	return true;
 }
 
-// Iterative radix-2 FFT, in-place on m_re/m_im.
-// Input: m_time
 void AudioAnalyzer::fftInPlace()
 {
-	// Copy time into complex
 	for (int i = 0; i < m_fftSize; ++i) {
 		m_re[i] = m_time[i];
 		m_im[i] = 0.0f;
@@ -136,7 +132,7 @@ void AudioAnalyzer::computeMagnitude()
 	for (int i = 0; i < m_fftSize / 2; ++i) {
 		float re = m_re[i];
 		float im = m_im[i];
-		// power
+
 		m_mag[i] = re * re + im * im;
 	}
 }
@@ -182,8 +178,6 @@ float AudioAnalyzer::getBandEnergy(float fLowHz, float fHighHz, uint32_t sampleR
 
 	float avg = sum / float((binHigh - binLow) + 1);
 
-	// Normalize roughly. This is not "real units", just stable-ish.
-	// You will tune gain in UI anyway.
 	return avg;
 }
 

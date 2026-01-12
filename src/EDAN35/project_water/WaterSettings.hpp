@@ -1,8 +1,54 @@
 #pragma once
 #include <vector>
-#include "WaterRenderer.hpp"     // WaterVisualParams
-#include "DriverSource.hpp"
-#include "AudioBandSource.hpp"
+#include <string>
+#include <glm/vec2.hpp>
+
+#include "WaterRenderer.hpp"
+
+enum class AudioBandType
+{
+	Point = 0,
+	Line = 1
+};
+
+struct AudioBandSource
+{
+	bool enabled = true;
+	std::string name = "Band";
+
+	AudioBandType  type = AudioBandType::Point;
+
+	float fLowHz = 0.0f;
+	float fHighHz = 200.0f;
+
+	glm::vec2 pos01 = glm::vec2(0.5f, 0.5f);
+
+	float radiusCells = 12.0f;
+
+	float gain = 1.0f;
+	float stiffness = 20;
+	float damping = 20;
+
+	float threshold = 0.15f;
+
+	float attack = 15.0f;
+	float release = 10.0f;
+
+	bool  agcEnabled = true;
+	float agcTimeSec = 2.0f;
+	float agcFloor = 1e-6f;
+	float agcRunning = 1e-4f;
+
+	float energyRaw = 0.0f;
+	float energyNorm = 0.0f;
+	float energySmoothed = 0.0f;
+
+	float length01 = 1.0f;
+	float angleRad = 0.0f;
+
+	float prevTargetU = 0.0f;
+};
+
 
 struct WaterSettings
 {
@@ -31,7 +77,6 @@ struct WaterSettings
 	} render;
 
 	struct Windows {
-		bool showDriverWindow = false;
 		bool showAudioWindow = false;
 		bool showSpectrumWindow = false;
 	} win;
@@ -44,16 +89,9 @@ struct WaterSettings
 		float spectrumMaxHz = 20000.0f;
 		bool  freezeSpectrum = false;
 
-		float k_stiff = 120.0f;
-		float d_damp = 10.0f;
-
 		std::vector<AudioBandSource> bands;
 		int selectedBand = -1;
 		int bandCounter = 0;
 	} audio;
 
-	// Persisted driver sources
-	std::vector<DriverSource> drivers;
-	int selectedDriver = -1;
-	int driverCounter = 0;
 };

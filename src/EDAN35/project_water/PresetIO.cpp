@@ -9,10 +9,7 @@
 #include <string>
 #include <unordered_map>
 
-// ============================================================
 // Helpers
-// ============================================================
-
 static inline std::string trim(std::string s)
 {
 	auto notSpace = [](unsigned char c) { return !std::isspace(c); };
@@ -39,7 +36,6 @@ static inline void writeKV(std::ostream& os, const char* key, bool v)
 }
 static inline void writeKV(std::ostream& os, const char* key, float v)
 {
-	// Save() sets fixed + precision, so just stream it.
 	os << key << "=" << v << "\n";
 }
 
@@ -67,7 +63,7 @@ static inline bool parseInt(const std::string& s, int& out)
 static inline bool parseFloat(const std::string& s, float& out)
 {
 	std::istringstream iss(s);
-	iss.imbue(std::locale::classic()); // IMPORTANT: parse '.' regardless of OS locale
+	iss.imbue(std::locale::classic());
 	float v;
 	if (!(iss >> v)) return false;
 	out = v;
@@ -133,10 +129,6 @@ static inline bool getBool(const std::unordered_map<std::string, std::string>& m
 	bool v;
 	return parseBool(it->second, v) ? v : def;
 }
-
-// ============================================================
-// PresetIO
-// ============================================================
 
 namespace PresetIO
 {
@@ -205,47 +197,18 @@ namespace PresetIO
 		writeKV(os, "vis.curvatureColorB", v.curvatureColor[2]);
 
 		// Windows
-		writeKV(os, "ui.showDriverWindow", s.win.showDriverWindow);
 		writeKV(os, "ui.showAudioWindow", s.win.showAudioWindow);
 
 		// Audio
 		writeKV(os, "audio.enabled", s.audio.enabled);
 		writeKV(os, "audio.volume", s.audio.volume);
-		writeKV(os, "audio.k_stiff", s.audio.k_stiff);
-		writeKV(os, "audio.d_damp", s.audio.d_damp);
 
 		writeKV(os, "audio.showSpectrum", s.win.showSpectrumWindow);
 		writeKV(os, "audio.freezeSpectrum", s.audio.freezeSpectrum);
 		writeKV(os, "audio.spectrumSmooth", s.audio.spectrumSmooth);
 		writeKV(os, "audio.spectrumMaxHz", s.audio.spectrumMaxHz);
 
-		// Drivers
-		writeKV(os, "drivers.count", (int)s.drivers.size());
-		for (int i = 0; i < (int)s.drivers.size(); ++i) {
-			auto const& d = s.drivers[i];
-			std::string p = "driver." + std::to_string(i) + ".";
-			writeKV(os, (p + "name").c_str(), d.name);
-			writeKV(os, (p + "enabled").c_str(), d.enabled);
-			writeKV(os, (p + "type").c_str(), (int)d.type);
-			writeKV(os, (p + "posx").c_str(), d.pos01.x);
-			writeKV(os, (p + "posy").c_str(), d.pos01.y);
-			writeKV(os, (p + "width").c_str(), d.width);
-			writeKV(os, (p + "amp").c_str(), d.amp);
-
-			writeKV(os, (p + "oscOn").c_str(), d.oscOn);
-			writeKV(os, (p + "freqHz").c_str(), d.freqHz);
-			writeKV(os, (p + "oscPhaseRad").c_str(), d.oscPhaseRad);
-
-			writeKV(os, (p + "spinOn").c_str(), d.spinOn);
-			writeKV(os, (p + "spinHz").c_str(), d.spinHz);
-			writeKV(os, (p + "spinPhaseRad").c_str(), d.spinPhaseRad);
-			writeKV(os, (p + "orbitRadius01").c_str(), d.orbitRadius01);
-
-			writeKV(os, (p + "angleRad").c_str(), d.angleRad);
-			writeKV(os, (p + "length01").c_str(), d.length01);
-		}
-
-		// Bands (NOTE: audio.bands)
+		// Bands
 		writeKV(os, "bands.count", (int)s.audio.bands.size());
 		for (int i = 0; i < (int)s.audio.bands.size(); ++i) {
 			auto const& b = s.audio.bands[i];
@@ -253,7 +216,6 @@ namespace PresetIO
 			writeKV(os, (p + "name").c_str(), b.name);
 			writeKV(os, (p + "enabled").c_str(), b.enabled);
 			writeKV(os, (p + "type").c_str(), (int)b.type);
-			writeKV(os, (p + "mode").c_str(), (int)b.mode);
 
 			writeKV(os, (p + "fLowHz").c_str(), b.fLowHz);
 			writeKV(os, (p + "fHighHz").c_str(), b.fHighHz);
@@ -262,6 +224,8 @@ namespace PresetIO
 			writeKV(os, (p + "posy").c_str(), b.pos01.y);
 
 			writeKV(os, (p + "gain").c_str(), b.gain);
+			writeKV(os, (p + "stiffness").c_str(), b.stiffness);
+			writeKV(os, (p + "damping").c_str(), b.damping);
 			writeKV(os, (p + "threshold").c_str(), b.threshold);
 			writeKV(os, (p + "radiusCells").c_str(), b.radiusCells);
 			writeKV(os, (p + "attack").c_str(), b.attack);
@@ -269,12 +233,6 @@ namespace PresetIO
 
 			writeKV(os, (p + "agcEnabled").c_str(), b.agcEnabled);
 			writeKV(os, (p + "agcTimeSec").c_str(), b.agcTimeSec);
-
-			writeKV(os, (p + "impulseGain").c_str(), b.impulseGain);
-			writeKV(os, (p + "onsetThreshold").c_str(), b.onsetThreshold);
-			writeKV(os, (p + "impulseCooldownSec").c_str(), b.impulseCooldownSec);
-			writeKV(os, (p + "fluxSmoothRate").c_str(), b.fluxSmoothRate);
-			writeKV(os, (p + "onsetHPTimeSec").c_str(), b.onsetHPTimeSec);
 
 			writeKV(os, (p + "angleRad").c_str(), b.angleRad);
 			writeKV(os, (p + "length01").c_str(), b.length01);
@@ -289,7 +247,6 @@ namespace PresetIO
 		if (m.empty()) return false;
 
 		// Windows
-		s.win.showDriverWindow = getBool(m, "ui.showDriverWindow", s.win.showDriverWindow);
 		s.win.showAudioWindow = getBool(m, "ui.showAudioWindow", s.win.showAudioWindow);
 		s.win.showSpectrumWindow = getBool(m, "audio.showSpectrum", s.win.showSpectrumWindow);
 
@@ -351,44 +308,12 @@ namespace PresetIO
 		// Audio
 		s.audio.enabled = getBool(m, "audio.enabled", s.audio.enabled);
 		s.audio.volume = getFloat(m, "audio.volume", s.audio.volume);
-		s.audio.k_stiff = getFloat(m, "audio.k_stiff", s.audio.k_stiff);
-		s.audio.d_damp = getFloat(m, "audio.d_damp", s.audio.d_damp);
 
 		s.audio.freezeSpectrum = getBool(m, "audio.freezeSpectrum", s.audio.freezeSpectrum);
 		s.audio.spectrumSmooth = getFloat(m, "audio.spectrumSmooth", s.audio.spectrumSmooth);
 		s.audio.spectrumMaxHz = getFloat(m, "audio.spectrumMaxHz", s.audio.spectrumMaxHz);
 
-		// Drivers
-		int dcount = std::max(0, getInt(m, "drivers.count", 0));
-		s.drivers.clear();
-		s.drivers.reserve(dcount);
-		for (int i = 0; i < dcount; ++i) {
-			DriverSource d;
-			std::string p = "driver." + std::to_string(i) + ".";
-			d.name = getStr(m, (p + "name").c_str(), ("Driver " + std::to_string(i)).c_str());
-			d.enabled = getBool(m, (p + "enabled").c_str(), true);
-			d.type = (DriverType)getInt(m, (p + "type").c_str(), 0);
-			d.pos01.x = getFloat(m, (p + "posx").c_str(), 0.5f);
-			d.pos01.y = getFloat(m, (p + "posy").c_str(), 0.5f);
-			d.width = getFloat(m, (p + "width").c_str(), 6.0f);
-			d.amp = getFloat(m, (p + "amp").c_str(), 0.2f);
-
-			d.oscOn = getBool(m, (p + "oscOn").c_str(), false);
-			d.freqHz = getFloat(m, (p + "freqHz").c_str(), 1.0f);
-			d.oscPhaseRad = getFloat(m, (p + "oscPhaseRad").c_str(), 0.0f);
-
-			d.spinOn = getBool(m, (p + "spinOn").c_str(), false);
-			d.spinHz = getFloat(m, (p + "spinHz").c_str(), 0.2f);
-			d.spinPhaseRad = getFloat(m, (p + "spinPhaseRad").c_str(), 0.0f);
-			d.orbitRadius01 = getFloat(m, (p + "orbitRadius01").c_str(), 0.0f);
-
-			d.angleRad = getFloat(m, (p + "angleRad").c_str(), 0.0f);
-			d.length01 = getFloat(m, (p + "length01").c_str(), 0.5f);
-
-			s.drivers.push_back(d);
-		}
-
-		// Bands (NOTE: audio.bands)
+		// Bands
 		int bcount = std::max(0, getInt(m, "bands.count", 0));
 		s.audio.bands.clear();
 		s.audio.bands.reserve(bcount);
@@ -399,7 +324,6 @@ namespace PresetIO
 			b.name = getStr(m, (p + "name").c_str(), ("Band " + std::to_string(i)).c_str());
 			b.enabled = getBool(m, (p + "enabled").c_str(), true);
 			b.type = (AudioBandType)getInt(m, (p + "type").c_str(), 0);
-			b.mode = (AudioDriveMode)getInt(m, (p + "mode").c_str(), 0);
 
 			b.fLowHz = getFloat(m, (p + "fLowHz").c_str(), 0.0f);
 			b.fHighHz = getFloat(m, (p + "fHighHz").c_str(), 200.0f);
@@ -408,6 +332,8 @@ namespace PresetIO
 			b.pos01.y = getFloat(m, (p + "posy").c_str(), 0.5f);
 
 			b.gain = getFloat(m, (p + "gain").c_str(), 0.0f);
+			b.stiffness = getFloat(m, (p + "stiffness").c_str(), 0.0f);
+			b.damping = getFloat(m, (p + "damping").c_str(), 0.0f);
 			b.threshold = getFloat(m, (p + "threshold").c_str(), 0.0f);
 			b.radiusCells = getFloat(m, (p + "radiusCells").c_str(), 6.0f);
 			b.attack = getFloat(m, (p + "attack").c_str(), 20.0f);
@@ -416,35 +342,19 @@ namespace PresetIO
 			b.agcEnabled = getBool(m, (p + "agcEnabled").c_str(), false);
 			b.agcTimeSec = getFloat(m, (p + "agcTimeSec").c_str(), 0.8f);
 
-			b.impulseGain = getFloat(m, (p + "impulseGain").c_str(), 0.0f);
-			b.onsetThreshold = getFloat(m, (p + "onsetThreshold").c_str(), 0.2f);
-			b.impulseCooldownSec = getFloat(m, (p + "impulseCooldownSec").c_str(), 0.08f);
-			b.fluxSmoothRate = getFloat(m, (p + "fluxSmoothRate").c_str(), 20.0f);
-			b.onsetHPTimeSec = getFloat(m, (p + "onsetHPTimeSec").c_str(), 0.35f);
-
 			b.angleRad = getFloat(m, (p + "angleRad").c_str(), 0.0f);
 			b.length01 = getFloat(m, (p + "length01").c_str(), 0.5f);
 
 			// runtime-only fields reset (keep safe defaults)
 			b.energyRaw = b.energyNorm = b.energySmoothed = 0.0f;
-			b.fluxRaw = b.fluxSmoothed = 0.0f;
-			b.cooldownTimer = 0.0f;
 			b.prevTargetU = 0.0f;
 			b.agcRunning = 0.0f;
-			b.energySlow = 0.0f;
 
 			s.audio.bands.push_back(b);
 		}
 
-		// Selection + counters
-		if (s.drivers.empty()) s.selectedDriver = -1;
-		else if (s.selectedDriver < 0 || s.selectedDriver >= (int)s.drivers.size()) s.selectedDriver = 0;
-
 		if (s.audio.bands.empty()) s.audio.selectedBand = -1;
 		else if (s.audio.selectedBand < 0 || s.audio.selectedBand >= (int)s.audio.bands.size()) s.audio.selectedBand = 0;
-
-		s.driverCounter = std::max(s.driverCounter, (int)s.drivers.size() + 1);
-		s.audio.bandCounter = std::max(s.audio.bandCounter, (int)s.audio.bands.size() + 1);
 
 		return true;
 	}

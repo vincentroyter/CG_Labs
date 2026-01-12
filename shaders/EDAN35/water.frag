@@ -4,10 +4,6 @@ in vec3 vPosWS;
 in vec3 vNrmWS;
 in vec2 vUV;
 
-// Heightfield texture
-// RG32F texture:
-// R = height (u)
-// G = vertical velocity (v)
 uniform sampler2D heightTex;
 
 // Node / zero-crossing visualization
@@ -21,19 +17,12 @@ uniform vec3 camera_pos_ws;
 
 // Height-based coloring
 uniform bool  u_useHeightColoring;
-uniform int   u_colorTheme;   // 0 = Ocean, 1 = Thermal, 2 = Psychedelic
+uniform int   u_colorTheme;   // 0=Ocean, 1=Thermal, 2=Psychedelic
 
 // Specular lighting
 uniform bool  u_enableSpecular;
 uniform float u_specularStrength;
 uniform float u_specularPower;
-
-// Foam effect
-uniform bool  u_enableFoam;
-uniform float u_foamThreshold;
-
-// Velocity visualization
-uniform bool  u_velocityColoring;
 
 // Derivative visualizers
 uniform bool  u_velocityEnabled;
@@ -53,8 +42,6 @@ uniform float u_curvatureScale;
 uniform float u_curvatureThreshold;
 uniform float u_curvatureStrength;
 uniform vec3  u_curvatureColor;
-
-
 
 out vec4 FragColor;
 
@@ -180,9 +167,7 @@ void main()
 		col = mix(col, u_curvatureColor, u_curvatureStrength * x);
 	}
 
-
-
-    // Node visualization (darken near height zero)
+    // Node visualization
     if (u_showNodes) {
         float node = 1.0 - smoothstep(0.0, u_nodeEps, abs(h));
         col *= (1.0 - u_nodeStrength * node);

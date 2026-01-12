@@ -5,8 +5,6 @@
 
 class AudioAnalyzer;
 
-// Uses miniaudio for playback.
-// You must provide third_party/miniaudio.h.
 class AudioEngine
 {
 public:
@@ -35,7 +33,6 @@ public:
 
 	const std::string& filePath() const { return m_path; }
 
-	// Attach analyzer to receive samples
 	void setAnalyzer(AudioAnalyzer* analyzer) { m_analyzer = analyzer; }
 
 	struct Impl;

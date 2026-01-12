@@ -23,5 +23,4 @@ class WaterUI
 {
 public:
 	void drawMain(WaterUIState& s, int currentNsim, int currentNr, float fps);
-	void drawDriversWindow(WaterUIState& s);
 };
