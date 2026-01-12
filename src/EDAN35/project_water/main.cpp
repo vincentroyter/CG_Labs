@@ -1,4 +1,4 @@
-#include "project_water.hpp"
+#include "ProjectWater.hpp"
 #include "core/Bonobo.h"
 
 #include <clocale>

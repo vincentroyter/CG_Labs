@@ -1,5 +1,5 @@
 // project_water.cpp
-#include "project_water.hpp"
+#include "ProjectWater.hpp"
 
 #include "config.hpp"
 #include "core/Bonobo.h"

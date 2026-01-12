@@ -4,8 +4,8 @@ target_compile_features(EDAN35_Project_Water PRIVATE cxx_std_17)
 target_sources(
   EDAN35_Project_Water
   PRIVATE
-    project_water.hpp
-    project_water.cpp
+    ProjectWater.hpp
+    ProjectWater.cpp
 
     WaterHeightfield.hpp
     WaterHeightfield.cpp
